@@ -1,0 +1,16 @@
+logs/
+tool_cache.db.db
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.DS_Store

@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "generatedAt": "2026-01-25T14:12:33.210Z",
+  "files": [
+    ".github/skills/lending-underwriting/SKILL.md",
+    ".github/agents/lending-underwriting.agent.md",
+    ".github/skills/example/SKILL.md",
+    ".github/agents/example.agent.md",
+    ".github/prompts/daedalion-openspec-cycle.prompt.md",
+    ".github/workflows/daedalion.yml",
+    ".github/copilot-instructions.md"
+  ]
+}

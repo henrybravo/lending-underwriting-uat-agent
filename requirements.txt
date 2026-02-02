@@ -1,0 +1,9 @@
+# GitHub Copilot SDK
+github-copilot-sdk
+
+# OpenTelemetry tracing
+opentelemetry-sdk
+opentelemetry-exporter-otlp-proto-grpc
+
+# Optional: Anthropic instrumentation for OTel
+opentelemetry-instrumentation-anthropic
