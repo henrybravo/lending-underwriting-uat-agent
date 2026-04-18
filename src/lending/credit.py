@@ -37,15 +37,15 @@ def check_adverse_events(events: list[AdverseEvent]) -> tuple[bool, list[str]]:
     return has_blocking, flags
 
 
-def is_credit_acceptable(credit: Credit) -> tuple[bool, str]:
+def is_credit_acceptable(credit: Credit) -> tuple[bool, str, list[str]]:
     if credit.score < 620:
-        return False, "score_below_minimum"
+        return False, "score_below_minimum", []
     
     has_blocking, flags = check_adverse_events(credit.adverse_events)
     if has_blocking:
-        return False, "blocking_adverse_event"
+        return False, "blocking_adverse_event", flags
     
     if flags:
-        return True, "credit_with_flags"
+        return True, "credit_with_flags", flags
     
-    return True, "credit_clean"
+    return True, "credit_clean", []

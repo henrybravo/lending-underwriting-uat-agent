@@ -96,6 +96,8 @@ def test_evaluate_flags_populated():
     app = generate_synthetic_applicant("recent_bankruptcy_ch7", {})
     decision = evaluate_application(app)
     assert decision["result"] == "AUTO_DENY"
+    assert decision["flags"], "Expected flags to be populated for bankruptcy scenario"
+    assert "recent_ch7" in decision["flags"]
 
 
 # --- compare_decisions ---
