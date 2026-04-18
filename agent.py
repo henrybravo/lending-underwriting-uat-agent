@@ -506,7 +506,7 @@ async def list_models():
             "Name": name,
             "Vision": "✓" if get_field(supports, "vision") else "",
             "State": get_field(policy, "state", ""),
-            "Billing": f"{get_field(billing, 'multiplier', '')}x" if get_field(billing, "multiplier") else "",
+            "Billing": "[REDACTED]" if get_field(billing, "multiplier") else "",
             "Max Prompt": f"{get_field(limits, 'max_prompt_tokens', 0):,}",
             "Max Context": f"{get_field(limits, 'max_context_window_tokens', 0):,}",
         })
