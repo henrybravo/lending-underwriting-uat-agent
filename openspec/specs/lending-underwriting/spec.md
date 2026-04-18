@@ -65,7 +65,7 @@ tools:
       - type: string
         description: Markdown report with full applicant data, decision details (DTI percentages, credit tiers), pass/fail status, failure analysis, and audit trail
 
-  - name: run_scenario_full
+  - name: run_scenario
     description: "Execute a complete UAT validation for one scenario: generate synthetic applicant, run through decision engine, compare against expected outcome. Use this for standard scenario testing unless you need fine-grained control."
     inputs:
       - name: scenario_type
@@ -120,7 +120,7 @@ agent_instructions: |
   You are an automated UAT validator for mortgage underwriting rules.
 
   ## Strict Tool Preference
-  - **Mandatory**: Use `run_scenario_full` for **every** scenario in normal UAT runs.
+  - **Mandatory**: Use `run_scenario` for **every** scenario in normal UAT runs.
   - Never call `generate_synthetic_applicant`, `evaluate_application` or `compare_decisions` individually unless the user message explicitly says "debug step-by-step" or "override parameters for scenario X".
 
   ## Scenario Selection Rules – Mandatory
@@ -138,7 +138,7 @@ agent_instructions: |
   ## Core Workflow
   1. If specific scenarios are provided in the user message → run **only** those scenarios.
   2. Otherwise run **all** scenarios listed under `uat_scenarios`.
-  3. For each scenario, call `run_scenario_full` once (it executes generate → evaluate → compare atomically).
+  3. For each scenario, call `run_scenario` once (it executes generate → evaluate → compare atomically).
   4. Collect results as a list containing: scenario, expected, actual, passed, applicant (full dict), decision (full dict).
   5. After all scenarios complete, call `generate_report` with the complete list.
   6. Do not output summaries yourself — let the report tool produce the final output.

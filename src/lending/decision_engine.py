@@ -5,7 +5,7 @@ from src.lending.dti import calculate_back_end_dti, get_effective_threshold
 
 
 def evaluate(application: LoanApplication) -> Decision:
-    credit_acceptable, credit_status = is_credit_acceptable(application.credit)
+    credit_acceptable, credit_status, credit_flags = is_credit_acceptable(application.credit)
     income_flags = check_income_variance(application.income)
 
     if not credit_acceptable:
@@ -13,7 +13,8 @@ def evaluate(application: LoanApplication) -> Decision:
             result=DecisionResult.AUTO_DENY,
             dti_calculated=0.0,
             credit_tier=get_credit_tier(application.credit.score),
-            rationale=f"Credit check failed: {credit_status}"
+            rationale=f"Credit check failed: {credit_status}",
+            flags=credit_flags
         )
     
     annual_income = calculate_total_income(application)
