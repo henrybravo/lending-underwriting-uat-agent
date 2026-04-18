@@ -207,14 +207,18 @@ tools:
 
 Each Copilot SDK API call carries a **~14K token baseline** of overhead (built-in system
 instructions, tool definitions, session state) that is controlled by the CLI runtime — not
-by the agent or SKILL.md. The SKILL.md itself adds ~4K tokens. Conversation history grows
+by the agent or SKILL.md. The SKILL.md itself adds ~1.2K tokens. Conversation history grows
 with each turn, so later calls in a session are larger.
 
-Example 2-scenario run (Claude Sonnet 4.5):
+The usage summary breaks input tokens into **fresh** (newly processed) and **cached**
+(served from the provider's prompt cache). Cached tokens are significantly cheaper, and
+the SDK caches aggressively across turns within a session.
+
+Example 1-scenario run (Claude Sonnet 4.5):
 - **API Calls**: 3–4 (one per LLM turn)
-- **Input Tokens**: ~42K (3 turns × ~14K baseline)
-- **Cache Read Tokens**: ~30K (SDK caches prior context)
-- **Duration**: ~20s
+- **Input Tokens**: ~88K (fresh: ~23K, cached: ~65K)
+- **Output Tokens**: ~1K
+- **Duration**: ~27s
 
 Full 11-scenario run:
 - **Duration**: ~108s
