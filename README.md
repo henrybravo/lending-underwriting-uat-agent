@@ -159,13 +159,15 @@ For minor updates without full OpenSpec cycle:
 ### Agent Session (agent.py)
 
 ```python
-session_cfg: copilot.SessionConfig = {
-    "tools": tools,                          # 5 explicitly registered tools
-    "streaming": True,
-    "skill_directories": [".github/skills"], # Load Daedalion-generated context
-    "excluded_tools": ["bash", "view", "edit"],  # Filter unwanted SDK tools
-    # NO system_prompt - rely on SKILL.md context
-}
+session = await client.create_session(
+    on_permission_request=PermissionHandler.approve_all,
+    tools=tools,                              # 6 registered tools
+    streaming=True,
+    skill_directories=[".github/skills"],     # Load Daedalion-generated context
+    excluded_tools=["bash", "view", "edit"],  # Filter unwanted SDK tools
+    model=model,
+    on_event=on_event,
+)
 ```
 
 ### Tool Definitions (spec.md YAML frontmatter)
@@ -203,12 +205,24 @@ tools:
 
 ## Session Telemetry
 
-Full 10-scenario run:
-- **Duration**: 108s (1min 48s)
-- **API Calls**: 342
-- **Tool Calls**: 64 (6 per scenario + 4 for report)
-- **Cost**: ~$32 (Claude Sonnet 4.5)
-- **Success Rate**: 80% (8/10 pass)
+Each Copilot SDK API call carries a **~14K token baseline** of overhead (built-in system
+instructions, tool definitions, session state) that is controlled by the CLI runtime — not
+by the agent or SKILL.md. The SKILL.md itself adds ~4K tokens. Conversation history grows
+with each turn, so later calls in a session are larger.
+
+Example 2-scenario run (Claude Sonnet 4.5):
+- **API Calls**: 3–4 (one per LLM turn)
+- **Input Tokens**: ~42K (3 turns × ~14K baseline)
+- **Cache Read Tokens**: ~30K (SDK caches prior context)
+- **Duration**: ~20s
+
+Full 11-scenario run:
+- **Duration**: ~108s
+- **API Calls**: ~10–15
+- **Tool Calls**: ~12 (1 per scenario + report)
+
+> **Tip**: Use `--manual` mode for zero-cost validation during development.
+> The `--debug` flag logs per-call token breakdowns to `logs/`.
 
 ## Development Notes
 
@@ -259,6 +273,7 @@ python agent.py --manual
 | `--no-streaming` | | Disable streaming output |
 | `--manual` | | Run without SDK (direct tool calls, no LLM) |
 | `--list-models` | | Show available models and exit |
+| `--tracing` | | Enable OpenTelemetry tracing (exports to localhost:4317) |
 
 ### Understanding `--task` vs `--scenarios`
 
@@ -371,8 +386,8 @@ uv run python agent.py -m gpt-4.1 --timeout 300
 | Dynamic scenario generation | ✗ | ✓ |
 | Root cause analysis | ✗ | ✓ |
 | Spec-aware recommendations | ✗ | ✓ |
-| Cost | ~$0 | ~$32/full run |
-| Time | <1s | ~108s |
+| Cost | ~$0 | Included in Copilot plan |
+| Time | <1s | ~20s (2 scenarios) |
 
 **When to use each:**
 - **Manual**: Quick iteration, CI gate, cost-sensitive
@@ -395,8 +410,7 @@ uv run python agent.py -m gpt-4.1 --timeout 300
 | TimeoutError after 60s | Complex task | `--timeout 300` |
 | Runs all scenarios when I specified one | Agent instructions issue | Fixed in latest version |
 | bash/view tools appear | excluded_tools missing | Add to session_cfg |
-| High token usage | SDK context management | Expected, uses cache |
-| Report not saved | Old agent.py | Update - auto-saves now |
+| High token usage | ~14K baseline per API call from CLI overhead | Expected; use `--debug` to inspect |
 | High cost for few scenarios | Used `--task` with scenario names | Use `-s` flag instead |
 | array schema missing items | Strict JSON Schema (GPT) | Already fixed in agent.py |
 | GPT-5 fails after tool calls | Model-specific issue | Use claude-sonnet-4.5 or gpt-4.1 |
