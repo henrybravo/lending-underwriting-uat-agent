@@ -170,8 +170,8 @@ def trace_span(name: str):
         yield NoOpSpan()
 
 
-def get_cached_value(key: str) -> dict | None:
-    """Retrieve cached value if exists and not expired."""
+def get_cached_value(key: str) -> str | None:
+    """Retrieve cached string value if exists and not expired."""
     import shelve
     import time
     try:
@@ -188,8 +188,8 @@ def get_cached_value(key: str) -> dict | None:
     return None
 
 
-def set_cached_value(key: str, value: dict) -> None:
-    """Store value with timestamp."""
+def set_cached_value(key: str, value: str) -> None:
+    """Store string value with timestamp."""
     import shelve
     import time
     try:
@@ -368,7 +368,7 @@ def create_tools() -> list[copilot_tools.Tool]:
                 "properties": {
                     "scenario_type": {
                         "type": "string",
-                        "description": "Scenario: standard_approval, dti_at_36_boundary, dti_at_43_boundary, self_employed_stable, rental_income, credit_minimum, credit_below_minimum, recent_bankruptcy_ch7, compensating_factors"
+                        "description": "Scenario: standard_approval, dti_at_36_boundary, dti_at_43_boundary, self_employed_stable, rental_income, credit_minimum, credit_below_minimum, recent_bankruptcy_ch7, compensating_factors, pension_income, bonus_income"
                     },
                     "params": {"type": "object", "description": "Override parameters"}
                 },
@@ -473,7 +473,9 @@ async def handle_run_scenario(invocation: copilot_tools.ToolInvocation) -> copil
             "applicant": applicant,
             "decision": decision,
             "comparison": comparison,
-            "passed": comparison.get("passed", False)
+            "passed": comparison.get("passed", False),
+            "expected": expected,
+            "actual": decision.get("result", "UNKNOWN")
         }
 
         return copilot_tools.ToolResult(text_result_for_llm=str(result))
