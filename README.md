@@ -31,12 +31,12 @@ Domain models live in `models.py` as Python dataclasses. The agent exercises thi
 uv venv .venv
 uv pip install -r requirements.txt --prerelease allow
 
-# 2. Authenticate with GitHub (required for Copilot SDK)
+# 2. Authenticate with GitHub (required for Copilot SDK) - i.e.
 gh auth login
 gh extension install github/gh-copilot  # if not already installed
 ```
 
-> The Copilot SDK requires a GitHub account with an active Copilot subscription.
+> The Copilot SDK requires a GitHub account with an active Copilot subscription. See [copilot-sdk/authenticate-copilot-sdk/authenticate-copilot-sdk](https://docs.github.com/en/copilot/how-tos/copilot-sdk/authenticate-copilot-sdk/authenticate-copilot-sdk)
 
 ### Run
 
