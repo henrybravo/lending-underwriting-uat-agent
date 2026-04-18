@@ -12,9 +12,11 @@ The pipeline runs in order:
 3. **DTI calculation** (`dti.py`) — back-end debt-to-income ratio with compensating factors (high credit, reserves, tenure, low LTV) that raise the approval threshold
 4. **Decision** (`decision_engine.py`) — orchestrates the above into a single `evaluate()` call
 
-Domain models live in `models.py` as Python dataclasses. The agent exercises this engine by generating synthetic applicants, running them through `evaluate()`, and comparing outcomes against spec expectations.
+Domain models live in `models.py` as Python dataclasses. The agent exercises this engine by generating synthetic applicants, running them through `evaluate()`, and comparing outcomes against spec expectations. See [`openspec/specs/lending-underwriting/spec.md`](openspec/specs/lending-underwriting/spec.md) for complete underwriting requirements.
 
 ## Quick Start
+
+The agent runs UAT validation against the lending decision engine using an LLM to orchestrate test scenarios:
 
 ```bash
 # 1. Run UAT for all scenarios
