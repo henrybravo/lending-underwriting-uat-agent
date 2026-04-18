@@ -1,5 +1,5 @@
 # GitHub Copilot SDK
-github-copilot-sdk
+github-copilot-sdk==0.2.2
 
 # OpenTelemetry tracing
 opentelemetry-sdk

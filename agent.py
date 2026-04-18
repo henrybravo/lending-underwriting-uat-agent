@@ -25,6 +25,8 @@ import logging
 from dataclasses import dataclass, field
 
 import copilot
+from copilot import session as copilot_session
+from copilot import tools as copilot_tools
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -145,6 +147,15 @@ def setup_logging(debug_enabled: bool) -> None:
         root.addHandler(file_handler)
         root.debug("Debug logging initialized")
 
+
+def get_field(obj, name: str, default=None):
+    if obj is None:
+        return default
+    if isinstance(obj, dict):
+        return obj.get(name, default)
+    return getattr(obj, name, default)
+
+
 @contextlib.contextmanager
 def trace_span(name: str):
     """Context manager for creating a span - works with or without OTel enabled."""
@@ -238,7 +249,7 @@ class UsageStats:
         print(f"  Cache Write Tokens: {self.cache_write_tokens:,}")
         print(f"  Total Tokens:       {self.input_tokens + self.output_tokens:,}")
         if self.total_cost > 0:
-            print(f"  Estimated Cost:     ${self.total_cost:.6f}")
+            print(f"  Billing Multiplier: {self.total_cost:.1f}x")
         if self.duration_ms > 0:
             print(f"  Total Duration:     {self.duration_ms}ms")
         print("=" * 60)
@@ -257,85 +268,83 @@ class UsageStats:
                 logging.debug("  %s: %s", k, v_str)
 
 
-def create_tools() -> list[copilot.Tool]:
+def create_tools() -> list[copilot_tools.Tool]:
     """Create SDK Tool objects with handlers."""
 
-    async def handle_evaluate(invocation: copilot.ToolInvocation) -> copilot.ToolResult:
+    async def handle_evaluate(invocation: copilot_tools.ToolInvocation) -> copilot_tools.ToolResult:
         with trace_span("Tool: evaluate_application"):
-            args = invocation["arguments"]
+            args = invocation.arguments
             key = cache_key("evaluate_application", args)
             cached = get_cached_value(key)
             if cached is not None:
                 print(f"[cache hit] evaluate_application: {key[:16]}...")
-                return cached
+                return copilot_tools.ToolResult(text_result_for_llm=cached)
             
             result = evaluate_application(args["application"])
-            cached_result = {"textResultForLlm": str(result), "resultType": "success"}
-            set_cached_value(key, cached_result)
-            return cached_result
+            text = str(result)
+            set_cached_value(key, text)
+            return copilot_tools.ToolResult(text_result_for_llm=text)
 
-    async def handle_generate(invocation: copilot.ToolInvocation) -> copilot.ToolResult:
+    async def handle_generate(invocation: copilot_tools.ToolInvocation) -> copilot_tools.ToolResult:
         with trace_span("Tool: generate_synthetic_applicant"):
-            args = invocation["arguments"]
+            args = invocation.arguments
             key = cache_key("generate_synthetic_applicant", args)
             cached = get_cached_value(key)
             if cached is not None:
                 print(f"[cache hit] generate_synthetic_applicant: {key[:16]}...")
-                return cached
+                return copilot_tools.ToolResult(text_result_for_llm=cached)
             
             result = generate_synthetic_applicant(args["scenario_type"], args.get("params", {}))
-            cached_result = {"textResultForLlm": str(result), "resultType": "success"}
-            set_cached_value(key, cached_result)
-            return cached_result
+            text = str(result)
+            set_cached_value(key, text)
+            return copilot_tools.ToolResult(text_result_for_llm=text)
 
-    async def handle_compare(invocation: copilot.ToolInvocation) -> copilot.ToolResult:
+    async def handle_compare(invocation: copilot_tools.ToolInvocation) -> copilot_tools.ToolResult:
         with trace_span("Tool: compare_decisions"):
-            args = invocation["arguments"]
+            args = invocation.arguments
             key = cache_key("compare_decisions", args)
             cached = get_cached_value(key)
             if cached is not None:
                 print(f"[cache hit] compare_decisions: {key[:16]}...")
-                return cached
+                return copilot_tools.ToolResult(text_result_for_llm=cached)
             
             result = compare_decisions(args["actual"], args["expected"])
-            cached_result = {"textResultForLlm": str(result), "resultType": "success"}
-            set_cached_value(key, cached_result)
-            return cached_result
+            text = str(result)
+            set_cached_value(key, text)
+            return copilot_tools.ToolResult(text_result_for_llm=text)
 
-    async def handle_read_spec(invocation: copilot.ToolInvocation) -> copilot.ToolResult:
+    async def handle_read_spec(invocation: copilot_tools.ToolInvocation) -> copilot_tools.ToolResult:
         with trace_span("Tool: read_spec_rules"):
-            args = invocation["arguments"]
+            args = invocation.arguments
             key = cache_key("read_spec_rules", args)
             cached = get_cached_value(key)
             if cached is not None:
                 print(f"[cache hit] read_spec_rules: {key[:16]}...")
-                return cached
+                return copilot_tools.ToolResult(text_result_for_llm=cached)
             
             result = read_spec_rules(args["spec_path"])
-            cached_result = {"textResultForLlm": str(result), "resultType": "success"}
-            set_cached_value(key, cached_result)
-            return cached_result
+            text = str(result)
+            set_cached_value(key, text)
+            return copilot_tools.ToolResult(text_result_for_llm=text)
 
-    async def handle_report(invocation: copilot.ToolInvocation) -> copilot.ToolResult:
+    async def handle_report(invocation: copilot_tools.ToolInvocation) -> copilot_tools.ToolResult:
         with trace_span("Tool: generate_report"):
             from datetime import datetime
             
-            args = invocation["arguments"]
+            args = invocation.arguments
             result = generate_report(args["test_results"])
             report_dir = Path("tests/uat/reports")
             report_dir.mkdir(parents=True, exist_ok=True)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             report_file = report_dir / f"uat_report_{timestamp}.md"
             report_file.write_text(result)
-            cached_result = {
-                "textResultForLlm": f"Report saved to {report_file}\n\n{result}",
-                "resultType": "success",
-                "sessionLog": f"Saved report: {report_file}"
-            }
-            return cached_result
+            return copilot_tools.ToolResult(
+                text_result_for_llm=f"Report saved to {report_file}\n\n{result}",
+                session_log=f"Saved report: {report_file}",
+            )
 
     return [
-        copilot.Tool(
+        copilot_tools.Tool(
             name="evaluate_application",
             description="Run a loan application through the decision engine",
             parameters={
@@ -350,7 +359,7 @@ def create_tools() -> list[copilot.Tool]:
             },
             handler=handle_evaluate
         ),
-        copilot.Tool(
+        copilot_tools.Tool(
             name="generate_synthetic_applicant",
             description="Create test application for specific scenario",
             parameters={
@@ -366,7 +375,7 @@ def create_tools() -> list[copilot.Tool]:
             },
             handler=handle_generate
         ),
-        copilot.Tool(
+        copilot_tools.Tool(
             name="compare_decisions",
             description="Check actual vs expected decision",
             parameters={
@@ -379,7 +388,7 @@ def create_tools() -> list[copilot.Tool]:
             },
             handler=handle_compare
         ),
-        copilot.Tool(
+        copilot_tools.Tool(
             name="read_spec_rules",
             description="Load rules from spec files",
             parameters={
@@ -391,7 +400,7 @@ def create_tools() -> list[copilot.Tool]:
             },
             handler=handle_read_spec
         ),
-        copilot.Tool(
+        copilot_tools.Tool(
             name="generate_report",
             description="Create UAT summary report with full applicant and decision data",
             parameters={
@@ -418,7 +427,7 @@ def create_tools() -> list[copilot.Tool]:
             },
             handler=handle_report
         ),
-        copilot.Tool(
+        copilot_tools.Tool(
             name="run_scenario_full",
             description="Execute a complete UAT validation for one scenario: generate synthetic applicant, run through decision engine, compare against expected outcome. Use this for standard scenario testing unless you need fine-grained control.",
             parameters={
@@ -441,10 +450,10 @@ def create_tools() -> list[copilot.Tool]:
     ]
 
 
-async def handle_run_scenario_full(invocation: copilot.ToolInvocation) -> copilot.ToolResult:
+async def handle_run_scenario_full(invocation: copilot_tools.ToolInvocation) -> copilot_tools.ToolResult:
     """Execute a complete UAT validation for one scenario."""
     with trace_span("Tool: run_scenario_full"):
-        args = invocation["arguments"]
+        args = invocation.arguments
         scenario_type = args["scenario_type"]
         expected = args["expected"]
         params = args.get("params", {})
@@ -466,10 +475,7 @@ async def handle_run_scenario_full(invocation: copilot.ToolInvocation) -> copilo
             "passed": comparison.get("passed", False)
         }
 
-        return {
-            "textResultForLlm": str(result),
-            "resultType": "success"
-        }
+        return copilot_tools.ToolResult(text_result_for_llm=str(result))
 
 
 async def list_models():
@@ -479,27 +485,27 @@ async def list_models():
     await client.start()
 
     status = await client.get_status()
-    logging.info("CLI Version: %s, Protocol: %s", status.get('version'), status.get('protocolVersion'))
+    logging.info("CLI Version: %s, Protocol: %s", get_field(status, "version"), get_field(status, "protocolVersion"))
 
     models = await client.list_models()  # Returns list directly
 
     for m in models:
-        model_id = m.get("id", "unknown")
-        name = m.get("name", model_id)
-        caps = m.get("capabilities", {})
-        limits = caps.get("limits", {})
-        supports = caps.get("supports", {})
-        policy = m.get("policy", {})
-        billing = m.get("billing", {})
+        model_id = get_field(m, "id", "unknown")
+        name = get_field(m, "name", model_id)
+        caps = get_field(m, "capabilities", {})
+        limits = get_field(caps, "limits", {})
+        supports = get_field(caps, "supports", {})
+        policy = get_field(m, "policy", {})
+        billing = get_field(m, "billing", {})
 
         logging.info("model_id=%s name=%s vision=%s policy_state=%s billing_x=%s max_prompt=%s max_context=%s",
                      model_id,
                      name,
-                     bool(supports.get("vision")),
-                     policy.get("state"),
-                     billing.get("multiplier"),
-                     limits.get("max_prompt_tokens"),
-                     limits.get("max_context_window_tokens"))
+                     bool(get_field(supports, "vision")),
+                     get_field(policy, "state"),
+                     get_field(billing, "multiplier"),
+                     get_field(limits, "max_prompt_tokens"),
+                     get_field(limits, "max_context_window_tokens"))
 
     await client.stop()
     logging.info("Total models available: %s", len(models))
@@ -516,54 +522,39 @@ async def run_uat(task: str, model: str = None, scenarios: list[str] = None, str
     await client.start()
 
     status = await client.get_status()
-    logging.info("Connected: CLI v%s, Protocol v%s", status.get('version'), status.get('protocolVersion'))
+    logging.info("Connected: CLI v%s, Protocol v%s", get_field(status, "version"), get_field(status, "protocolVersion"))
 
     # Create tools
     tools = create_tools()
     logging.info("Registered %s tools", len(tools))
 
-    # Build session config
-    # Option A-2: Use skill_directories with excluded_tools, NO inline system_message
-    # Testing if SKILL.md provides enough context
-    session_cfg: copilot.SessionConfig = {
-        "tools": tools,
-        "streaming": streaming,
-        "skill_directories": [".github/skills"],
-        "excluded_tools": ["bash", "view", "edit"],
-        # NO system_message - rely on skill files for context
-    }
-    if model:
-        session_cfg["model"] = model
-        logging.info("Model selected: %s", model)
-
-    # Create session
-    session = await client.create_session(session_cfg)
-    logging.info("Session created")
-
     # Track usage stats
     stats = UsageStats()
 
-    def _update_stats_from_data(data):
-        # Generic token/cost aggregation with tolerant attribute access
-        stats.input_tokens += getattr(data, 'input_tokens', 0) or getattr(data, 'inputTokens', 0) or 0
-        stats.output_tokens += getattr(data, 'output_tokens', 0) or getattr(data, 'outputTokens', 0) or 0
-        stats.cache_read_tokens += getattr(data, 'cache_read_tokens', 0) or getattr(data, 'cacheReadTokens', 0) or 0
-        stats.cache_write_tokens += getattr(data, 'cache_write_tokens', 0) or getattr(data, 'cacheWriteTokens', 0) or 0
-        stats.total_cost += getattr(data, 'cost', 0) or getattr(data, 'price', 0) or 0
-        stats.duration_ms += getattr(data, 'duration', 0) or getattr(data, 'latencyMs', 0) or 0
-        selected_model = getattr(data, 'model', None) or getattr(data, 'selected_model', None)
+    def _update_stats_from_usage(data):
+        """Extract usage stats from ASSISTANT_USAGE event data only."""
+        stats.input_tokens += getattr(data, 'input_tokens', 0) or 0
+        stats.output_tokens += getattr(data, 'output_tokens', 0) or 0
+        stats.cache_read_tokens += getattr(data, 'cache_read_tokens', 0) or 0
+        stats.cache_write_tokens += getattr(data, 'cache_write_tokens', 0) or 0
+        stats.total_cost += getattr(data, 'cost', 0) or 0
+        stats.duration_ms += getattr(data, 'duration_ms', 0) or 0
+        selected_model = getattr(data, 'model', None)
         if selected_model:
             stats.model = selected_model
 
     # Register event handler
-    def on_event(event: copilot.SessionEvent):
+    def on_event(event: copilot_session.SessionEvent):
         raw_type = str(event.type.value) if hasattr(event.type, 'value') else str(event.type)
         event_type = raw_type.lower()
         stats.events.append(raw_type)
 
         data = getattr(event, 'data', None)
-        if data:
-            _update_stats_from_data(data)
+
+        # Only count usage from ASSISTANT_USAGE events
+        if event_type == "assistant.usage" and data:
+            stats.api_calls += 1
+            _update_stats_from_usage(data)
 
         # Capture full event data for debug mode
         if debug and data:
@@ -589,8 +580,7 @@ async def run_uat(task: str, model: str = None, scenarios: list[str] = None, str
                 pass
 
         # Count API responses whenever token usage fields are present.
-        if data and any(hasattr(data, f) for f in ("input_tokens", "output_tokens", "inputTokens", "outputTokens")):
-            stats.api_calls += 1
+        # (already counted above for assistant.usage events)
 
         # Count tool executions (start events only, not complete)
         if event_type == "tool.execution_start":
@@ -615,23 +605,32 @@ async def run_uat(task: str, model: str = None, scenarios: list[str] = None, str
             if extra:
                 print(f"  [event] {raw_type} ({extra})")
 
-    session.on(on_event)
+    # Create session
+    session = await client.create_session(
+        on_permission_request=copilot_session.PermissionHandler.approve_all,
+        tools=tools,
+        streaming=streaming,
+        skill_directories=[".github/skills"],
+        excluded_tools=["bash", "view", "edit"],
+        model=model,
+        on_event=on_event,
+    )
+    if model:
+        logging.info("Model selected: %s", model)
+    logging.info("Session created")
 
     # Build minimal task prompt - domain knowledge lives in skill files
-    default_message = """
-Execute standard UAT validation for the lending-underwriting skill.
+    if scenarios:
+        scenario_list = ", ".join(scenarios)
+        task_prompt = f"Run UAT validation for ONLY these scenarios: {scenario_list}\n\nDo NOT run any other scenarios."
+    else:
+        task_prompt = """Execute standard UAT validation for the lending-underwriting skill.
 
 Follow the instructions and preferred workflow defined in the loaded skill.
 
-If no specific scenarios are requested, validate all scenarios listed in the skill.
+Validate all scenarios listed in the skill.
 Always conclude by calling generate_report with collected results.
 """
-
-    if scenarios:
-        scenario_list = ", ".join(scenarios)
-        task_prompt = f"{default_message}\n\nAdditionally run exactly these scenarios: {scenario_list}"
-    else:
-        task_prompt = default_message
 
     logging.info("Task: %s", task)
     logging.info("Timeout: %ss", timeout)
@@ -639,12 +638,7 @@ Always conclude by calling generate_report with collected results.
     # Send and wait with configured timeout
     # Provide both prompt and messages for compatibility with SDK expectations.
     with trace_span("Session Send And Wait"):
-        await session.send_and_wait({
-            "prompt": task_prompt,
-            "messages": [
-                {"role": "user", "content": task_prompt}
-            ]
-        }, timeout=timeout)
+        await session.send_and_wait(task_prompt, timeout=timeout)
 
     if streaming:
         print()  # newline after streamed content
@@ -657,7 +651,7 @@ Always conclude by calling generate_report with collected results.
         stats.print_debug()
 
     # Cleanup
-    await session.destroy()
+    await session.disconnect()
     await client.stop()
     print("\n✓ Session complete")
 
@@ -743,6 +737,7 @@ Available scenarios:
     parser.add_argument("--debug", "-d", action="store_true",
                         help="Capture and print all event data (quota, compaction, context, etc.)")
     parser.add_argument("--manual", action="store_true", help="Run without SDK (direct tool calls)")
+    parser.add_argument("--tracing", action="store_true", help="Enable OpenTelemetry tracing (exports to localhost:4317)")
 
     args = parser.parse_args()
 
@@ -753,8 +748,9 @@ Available scenarios:
     if args.list_models:
         asyncio.run(list_models())
     else:
-        # Initialize tracing only for UAT operations (not --list-models or --help)
-        init_tracing()
+        # Initialize tracing only when explicitly requested
+        if args.tracing:
+            init_tracing()
 
         # Warn if --task looks like scenario names
         if args.task != "Run UAT for lending underwriting":
