@@ -204,7 +204,7 @@ KNOWN_SCENARIOS = {
     "standard_approval", "dti_at_36_boundary", "dti_at_43_boundary",
     "self_employed_stable", "rental_income", "credit_minimum",
     "credit_below_minimum", "recent_bankruptcy_ch7", "compensating_factors",
-    "pension_income"
+    "pension_income", "bonus_income"
 }
 
 
