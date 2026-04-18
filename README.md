@@ -6,11 +6,19 @@ Part of series of AI agents that automate code reviews, backlog refinement or so
 
 The system under test is a mortgage underwriting decision engine that takes a loan application and returns one of three outcomes: **AUTO_APPROVE**, **MANUAL_REVIEW**, or **AUTO_DENY**.
 
-The pipeline runs in order:
-1. **Credit check** (`credit.py`) — score tiers (excellent ≥750, good ≥700, fair ≥650, minimum ≥620) and adverse event windows (Ch7 bankruptcy ≤4yr, foreclosure ≤3yr block approval)
-2. **Income verification** (`income.py`) — supports W2, self-employed, rental, pension, and bonus/commission with variance checks
-3. **DTI calculation** (`dti.py`) — back-end debt-to-income ratio with compensating factors (high credit, reserves, tenure, low LTV) that raise the approval threshold
-4. **Decision** (`decision_engine.py`) — orchestrates the above into a single `evaluate()` call
+```
+LoanApplication
+  │
+  ├─► Credit Check (credit.py)        Score tiers, adverse event windows
+  │     fail → AUTO_DENY
+  │
+  ├─► Income Verification (income.py)  W2, self-employed, rental, pension, bonus
+  │
+  ├─► DTI Calculation (dti.py)         Back-end ratio + compensating factors
+  │     >50% → AUTO_DENY
+  │
+  └─► Decision (decision_engine.py)    evaluate() → AUTO_APPROVE | MANUAL_REVIEW | AUTO_DENY
+```
 
 Domain models live in `models.py` as Python dataclasses. The agent exercises this engine by generating synthetic applicants, running them through `evaluate()`, and comparing outcomes against spec expectations. See [`openspec/specs/lending-underwriting/spec.md`](openspec/specs/lending-underwriting/spec.md) for complete underwriting requirements.
 
