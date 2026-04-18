@@ -511,6 +511,13 @@ async def list_models():
             "Max Context": f"{get_field(limits, 'max_context_window_tokens', 0):,}",
         })
 
+        # Dump full SDK object when --debug is active
+        logging.debug("model raw: %s", {
+            attr: getattr(m, attr, None)
+            for attr in dir(m)
+            if not attr.startswith("_")
+        })
+
     if rows:
         headers = list(rows[0].keys())
         col_widths = {h: max(len(h), *(len(str(r[h])) for r in rows)) for h in headers}
