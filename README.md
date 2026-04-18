@@ -24,13 +24,29 @@ Domain models live in `models.py` as Python dataclasses. The agent exercises thi
 
 ## Quick Start
 
+### Prerequisites
+
+```bash
+# 1. Create virtual environment and install dependencies
+uv venv .venv
+uv pip install -r requirements.txt --prerelease allow
+
+# 2. Authenticate with GitHub (required for Copilot SDK)
+gh auth login
+gh extension install github/gh-copilot  # if not already installed
+```
+
+> The Copilot SDK requires a GitHub account with an active Copilot subscription.
+
+### Run
+
 The agent runs UAT validation against the lending decision engine using an LLM to orchestrate test scenarios:
 
 ```bash
-# 1. Run UAT for all scenarios
+# Run UAT for all scenarios
 uv run python agent.py --model claude-sonnet-4.5
 
-# 2. Run specific scenarios
+# Run specific scenarios
 uv run python agent.py --model claude-sonnet-4.5 -s standard_approval,bonus_income
 ```
 
