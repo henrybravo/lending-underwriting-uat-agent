@@ -623,7 +623,11 @@ async def run_uat(task: str, model: str = None, scenarios: list[str] = None, str
     # Build minimal task prompt - domain knowledge lives in skill files
     if scenarios:
         scenario_list = ", ".join(scenarios)
-        task_prompt = f"Run UAT validation for ONLY these scenarios: {scenario_list}\n\nDo NOT run any other scenarios."
+        task_prompt = (
+            f"Run UAT validation for ONLY these scenarios: {scenario_list}\n\n"
+            "Do NOT run any other scenarios.\n"
+            "Always conclude by calling generate_report with ALL collected results."
+        )
     else:
         task_prompt = """Execute standard UAT validation for the lending-underwriting skill.
 
