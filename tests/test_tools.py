@@ -124,7 +124,7 @@ SCENARIO_EXPECTATIONS = {
     "dti_at_43_boundary": "MANUAL_REVIEW",
     "self_employed_stable": "AUTO_APPROVE",
     "rental_income": "AUTO_APPROVE",
-    "credit_minimum": "AUTO_APPROVE",
+    "credit_minimum": "MANUAL_REVIEW",
     "credit_below_minimum": "AUTO_DENY",
     "recent_bankruptcy_ch7": "AUTO_DENY",
     "compensating_factors": "AUTO_APPROVE",
