@@ -490,6 +490,8 @@ async def list_models():
 
     models = await client.list_models()  # Returns list directly
 
+    # Build rows for ASCII table
+    rows = []
     for m in models:
         model_id = get_field(m, "id", "unknown")
         name = get_field(m, "name", model_id)
@@ -499,17 +501,29 @@ async def list_models():
         policy = get_field(m, "policy", {})
         billing = get_field(m, "billing", {})
 
-        logging.info("model_id=%s name=%s vision=%s policy_state=%s billing_x=%s max_prompt=%s max_context=%s",
-                     model_id,
-                     name,
-                     bool(get_field(supports, "vision")),
-                     get_field(policy, "state"),
-                     get_field(billing, "multiplier"),
-                     get_field(limits, "max_prompt_tokens"),
-                     get_field(limits, "max_context_window_tokens"))
+        rows.append({
+            "Model ID": model_id,
+            "Name": name,
+            "Vision": "✓" if get_field(supports, "vision") else "",
+            "State": get_field(policy, "state", ""),
+            "Billing": f"{get_field(billing, 'multiplier', '')}x" if get_field(billing, "multiplier") else "",
+            "Max Prompt": f"{get_field(limits, 'max_prompt_tokens', 0):,}",
+            "Max Context": f"{get_field(limits, 'max_context_window_tokens', 0):,}",
+        })
+
+    if rows:
+        headers = list(rows[0].keys())
+        col_widths = {h: max(len(h), *(len(str(r[h])) for r in rows)) for h in headers}
+        header_line = " | ".join(h.ljust(col_widths[h]) for h in headers)
+        sep_line = "-+-".join("-" * col_widths[h] for h in headers)
+        print(f"\n {header_line}")
+        print(f" {sep_line}")
+        for r in rows:
+            print(f" {' | '.join(str(r[h]).ljust(col_widths[h]) for h in headers)}")
+        print()
 
     await client.stop()
-    logging.info("Total models available: %s", len(models))
+    print(f"Total: {len(models)} models")
 
 
 async def run_uat(task: str, model: str = None, scenarios: list[str] = None, streaming: bool = True, timeout: float = 300.0, debug: bool = False):
