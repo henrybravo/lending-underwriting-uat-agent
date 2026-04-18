@@ -429,7 +429,7 @@ def create_tools() -> list[copilot_tools.Tool]:
             handler=handle_report
         ),
         copilot_tools.Tool(
-            name="run_scenario_full",
+            name="run_scenario",
             description="Execute a complete UAT validation for one scenario: generate synthetic applicant, run through decision engine, compare against expected outcome. Use this for standard scenario testing unless you need fine-grained control.",
             parameters={
                 "type": "object",
@@ -446,14 +446,14 @@ def create_tools() -> list[copilot_tools.Tool]:
                 },
                 "required": ["scenario_type", "expected"]
             },
-            handler=handle_run_scenario_full
+            handler=handle_run_scenario
         ),
     ]
 
 
-async def handle_run_scenario_full(invocation: copilot_tools.ToolInvocation) -> copilot_tools.ToolResult:
+async def handle_run_scenario(invocation: copilot_tools.ToolInvocation) -> copilot_tools.ToolResult:
     """Execute a complete UAT validation for one scenario."""
-    with trace_span("Tool: run_scenario_full"):
+    with trace_span("Tool: run_scenario"):
         args = invocation.arguments
         scenario_type = args["scenario_type"]
         expected = args["expected"]
@@ -608,7 +608,7 @@ async def run_uat(task: str, model: str = None, scenarios: list[str] = None, str
         if event_type == "tool.execution_start":
             tool_name = getattr(data, 'tool_name', None) or getattr(data, 'name', None) or 'unknown'
             # Only count our registered tools, not SDK internals (skill, report_intent, etc.)
-            if tool_name in {"generate_synthetic_applicant", "evaluate_application", "compare_decisions", "read_spec_rules", "generate_report", "run_scenario_full"}:
+            if tool_name in {"generate_synthetic_applicant", "evaluate_application", "compare_decisions", "read_spec_rules", "generate_report", "run_scenario"}:
                 stats.tool_calls += 1
                 tool_args = getattr(data, 'arguments', None) or {}
                 scenario = tool_args.get("scenario_type", "")
