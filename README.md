@@ -37,19 +37,22 @@ uv run python agent.py --model claude-sonnet-4.5 -s standard_approval,bonus_inco
 ## Project Structure
 
 ```
-├── openspec/
-│   ├── specs/lending-underwriting/spec.md    # Source of truth: requirements, tools, scenarios
-│   └── changes/                               # Change proposals (archived after completion)
 ├── .github/
 │   ├── skills/lending-underwriting/SKILL.md   # Daedalion-generated skill with tool definitions
 │   ├── agents/lending-underwriting.agent.md   # Agent profile
 │   └── copilot-instructions.md                # Project context for Copilot
+├── docs/
+├── logs/
+├── openspec/
+│   ├── specs/lending-underwriting/spec.md    # Source of truth: requirements, tools, scenarios
+│   └── changes/                               # Change proposals (archived after completion)
 ├── src/lending/                               # Decision engine implementation
 │   ├── models.py                              # Domain models (LoanApplication, Income, Credit, etc.)
 │   ├── income.py                              # Income verification logic
 │   ├── dti.py                                 # DTI calculation with compensating factors
 │   ├── credit.py                              # Credit assessment and adverse events
 │   └── decision_engine.py                     # Main evaluate() entry point
+├── tests/
 ├── tools/                                     # Agent tool implementations
 │   ├── evaluate_application.py                # Run applicant through decision engine
 │   ├── generate_synthetic_applicant.py        # Create test loan applications
