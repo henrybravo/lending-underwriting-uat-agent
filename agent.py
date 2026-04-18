@@ -610,7 +610,10 @@ async def run_uat(task: str, model: str = None, scenarios: list[str] = None, str
             # Only count our registered tools, not SDK internals (skill, report_intent, etc.)
             if tool_name in {"generate_synthetic_applicant", "evaluate_application", "compare_decisions", "read_spec_rules", "generate_report", "run_scenario_full"}:
                 stats.tool_calls += 1
-                logging.info("tool start: %s", tool_name)
+                tool_args = getattr(data, 'arguments', None) or {}
+                scenario = tool_args.get("scenario_type", "")
+                label = f"{tool_name}({scenario})" if scenario else tool_name
+                logging.info("tool: %s", label)
         elif event_type == "assistant.message_delta" and streaming:
             delta = getattr(data, 'delta_content', '') or getattr(data, 'text', '')
             if delta:
