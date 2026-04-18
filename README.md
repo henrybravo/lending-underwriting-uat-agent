@@ -2,6 +2,18 @@
 
 Part of series of AI agents that automate code reviews, backlog refinement or software delivery workflows.
 
+## The Lending App (`src/lending/`)
+
+The system under test is a mortgage underwriting decision engine that takes a loan application and returns one of three outcomes: **AUTO_APPROVE**, **MANUAL_REVIEW**, or **AUTO_DENY**.
+
+The pipeline runs in order:
+1. **Credit check** (`credit.py`) — score tiers (excellent ≥750, good ≥700, fair ≥650, minimum ≥620) and adverse event windows (Ch7 bankruptcy ≤4yr, foreclosure ≤3yr block approval)
+2. **Income verification** (`income.py`) — supports W2, self-employed, rental, pension, and bonus/commission with variance checks
+3. **DTI calculation** (`dti.py`) — back-end debt-to-income ratio with compensating factors (high credit, reserves, tenure, low LTV) that raise the approval threshold
+4. **Decision** (`decision_engine.py`) — orchestrates the above into a single `evaluate()` call
+
+Domain models live in `models.py` as Python dataclasses. The agent exercises this engine by generating synthetic applicants, running them through `evaluate()`, and comparing outcomes against spec expectations.
+
 ## Quick Start
 
 ```bash
