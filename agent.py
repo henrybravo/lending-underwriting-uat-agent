@@ -226,10 +226,10 @@ class UsageStats:
     def add_api_response(self, data):
         """Update stats from an API response event."""
         self.api_calls += 1
-        self.input_tokens += getattr(data, 'input_tokens', 0) or 0
-        self.output_tokens += getattr(data, 'output_tokens', 0) or 0
-        self.cache_read_tokens += getattr(data, 'cache_read_tokens', 0) or 0
-        self.cache_write_tokens += getattr(data, 'cache_write_tokens', 0) or 0
+        self.input_tokens += int(getattr(data, 'input_tokens', 0) or 0)
+        self.output_tokens += int(getattr(data, 'output_tokens', 0) or 0)
+        self.cache_read_tokens += int(getattr(data, 'cache_read_tokens', 0) or 0)
+        self.cache_write_tokens += int(getattr(data, 'cache_write_tokens', 0) or 0)
         self.total_cost += getattr(data, 'cost', 0) or 0
         self.duration_ms += getattr(data, 'duration', 0) or 0
         if hasattr(data, 'model') and data.model:
@@ -243,10 +243,11 @@ class UsageStats:
         print(f"  Model:              {self.model or 'unknown'}")
         print(f"  API Calls:          {self.api_calls}")
         print(f"  Tool Calls:         {self.tool_calls}")
-        print(f"  Input Tokens:       {self.input_tokens:,}")
+        fresh_input = self.input_tokens - self.cache_read_tokens
+        print(f"  Input Tokens:       {self.input_tokens:,}  (fresh: {fresh_input:,}, cached: {self.cache_read_tokens:,})")
         print(f"  Output Tokens:      {self.output_tokens:,}")
-        print(f"  Cache Read Tokens:  {self.cache_read_tokens:,}")
-        print(f"  Cache Write Tokens: {self.cache_write_tokens:,}")
+        if self.cache_write_tokens:
+            print(f"  Cache Write Tokens: {self.cache_write_tokens:,}")
         print(f"  Total Tokens:       {self.input_tokens + self.output_tokens:,}")
         if self.total_cost > 0:
             print(f"  Billing Multiplier: {self.total_cost:.1f}x")
@@ -533,12 +534,12 @@ async def run_uat(task: str, model: str = None, scenarios: list[str] = None, str
 
     def _update_stats_from_usage(data):
         """Extract usage stats from ASSISTANT_USAGE event data only."""
-        stats.input_tokens += getattr(data, 'input_tokens', 0) or 0
-        stats.output_tokens += getattr(data, 'output_tokens', 0) or 0
-        stats.cache_read_tokens += getattr(data, 'cache_read_tokens', 0) or 0
-        stats.cache_write_tokens += getattr(data, 'cache_write_tokens', 0) or 0
+        stats.input_tokens += int(getattr(data, 'input_tokens', 0) or 0)
+        stats.output_tokens += int(getattr(data, 'output_tokens', 0) or 0)
+        stats.cache_read_tokens += int(getattr(data, 'cache_read_tokens', 0) or 0)
+        stats.cache_write_tokens += int(getattr(data, 'cache_write_tokens', 0) or 0)
         stats.total_cost += getattr(data, 'cost', 0) or 0
-        stats.duration_ms += getattr(data, 'duration_ms', 0) or 0
+        stats.duration_ms += int(getattr(data, 'duration_ms', 0) or 0)
         selected_model = getattr(data, 'model', None)
         if selected_model:
             stats.model = selected_model
