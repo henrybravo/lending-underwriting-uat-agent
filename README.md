@@ -53,13 +53,16 @@ uv run python agent.py --model claude-sonnet-4.5 -s standard_approval,bonus_inco
 │   ├── credit.py                              # Credit assessment and adverse events
 │   └── decision_engine.py                     # Main evaluate() entry point
 ├── tests/
+│   ├── test_basic.py                          # Basic decision engine smoke tests
+│   ├── test_tools.py                          # Unit tests for all tool functions (15 tests)
+│   └── uat/reports/                           # Generated UAT reports
 ├── tools/                                     # Agent tool implementations
+│   ├── run_scenario.py                        # Full scenario pipeline (generate → evaluate → compare)
 │   ├── evaluate_application.py                # Run applicant through decision engine
 │   ├── generate_synthetic_applicant.py        # Create test loan applications
 │   ├── compare_decisions.py                   # Validate actual vs expected
 │   ├── read_spec_rules.py                     # Parse spec requirements
 │   └── generate_report.py                     # Produce markdown UAT reports
-├── tests/uat/reports/                         # Generated UAT reports
 └── agent.py                                   # Copilot SDK entry point
 ```
 
@@ -72,13 +75,14 @@ uv run python agent.py --model claude-sonnet-4.5 -s standard_approval,bonus_inco
 - **Adverse events**: Bankruptcy (Ch7/Ch13), foreclosure lookback windows
 - **Compensating factors**: Credit score, reserves, tenure, LTV cumulation
 
-### Current Test Results (9/11 PASS)
+### Current Test Results (8/11 PASS)
 
-✓ standard_approval, dti_at_36_boundary, self_employed_stable, credit_minimum, credit_below_minimum, recent_bankruptcy_ch7, compensating_factors, pension_income, bonus_income
+✓ standard_approval, dti_at_36_boundary, self_employed_stable, compensating_factors, pension_income, bonus_income, credit_below_minimum, recent_bankruptcy_ch7
 
 ✗ **Known bugs** (documented, intentional for UAT validation):
-1. `dti_at_43_boundary`: DTI <=43 should be MANUAL_REVIEW (currently AUTO_DENY due to `<43` bug)
+1. `dti_at_43_boundary`: DTI <=43 should be MANUAL_REVIEW (currently AUTO_DENY due to `<43` boundary bug)
 2. `rental_income`: Missing 0.75 vacancy factor (DTI 46.15% instead of 34.61%)
+3. `credit_minimum`: Score 620 should AUTO_APPROVE (currently MANUAL_REVIEW due to threshold boundary)
 
 ## Session Telemetry
 
@@ -120,27 +124,49 @@ Full 11-scenario run:
 
 2. Add expected outcome to spec.md scenarios (optional but recommended)
 
-3. Test: `python agent.py --scenarios new_scenario`
+3. Add to `SCENARIO_EXPECTATIONS` in `tests/test_tools.py` and run unit tests:
+   ```bash
+   uv run python tests/test_tools.py
+   ```
+
+4. Test with agent: `uv run python agent.py --scenarios new_scenario`
 
 ### Modifying Decision Rules
 
 1. Update spec requirements in `openspec/specs/lending-underwriting/spec.md`
 2. Implement in `src/lending/*.py`
 3. Run `daedalion build` to update SKILL.md
-4. Validate with UAT: `python agent.py`
+4. Validate with unit tests and UAT:
+   ```bash
+   uv run python tests/test_basic.py && uv run python tests/test_tools.py
+   uv run python agent.py
+   ```
+
+### Testing
+
+```bash
+# Unit tests — decision engine basics (2 tests)
+uv run python tests/test_basic.py
+
+# Unit tests — all tool functions (15 tests)
+uv run python tests/test_tools.py
+
+# Agent UAT — LLM-driven end-to-end validation (requires Copilot CLI)
+uv run python agent.py --model claude-sonnet-4.5 -s standard_approval,bonus_income
+```
 
 ### Debugging
 
 ```bash
 # Enable debug mode for full event logging - writes logfiles to ./logs/debug_[date_time].log
-python agent.py --debug
+uv run python agent.py --debug
 
 # Run manual mode (direct tool invocation, no SDK)
-python agent.py --manual
+uv run python agent.py --manual
 
 # Check session telemetry
 # Look for "SESSION USAGE SUMMARY" at end of run and see docs/jaeger.md
-python agent.py --tracing
+uv run python agent.py --tracing
 ```
 
 ## CLI Reference
