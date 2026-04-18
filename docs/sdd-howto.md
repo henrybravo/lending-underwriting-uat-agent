@@ -19,8 +19,7 @@ Spec-driven UAT agent for mortgage underwriting. Demonstrates Daedalion compilat
 │  Generates:                                                         │
 │  ├── .github/skills/lending-underwriting/SKILL.md                   │
 │  ├── .github/agents/lending-underwriting.agent.md                   │
-│  ├── .github/copilot-instructions.md                                │
-│  └── .github/workflows/daedalion.yml                                │
+│  └── .github/copilot-instructions.md                                │
 └─────────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼
