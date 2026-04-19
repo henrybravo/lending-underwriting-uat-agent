@@ -52,67 +52,23 @@ def cache_key(tool_name: str, args: dict) -> str:
     return hashlib.sha256(serialized.encode()).hexdigest()
 
 
-# OpenTelemetry setup for instrumentation (lazy init so --help does not trigger it)
-tracer_provider = None
-tracer = None
-OTEL_ENABLED = False
+# MLflow experiment tracking (lazy import — only loaded when --mlflow is passed)
+MLFLOW_ENABLED = False
 
 
-def init_tracing():
-    """Initialize OTLP tracing once per process."""
-    global tracer_provider, tracer, OTEL_ENABLED
-
-    if OTEL_ENABLED:
-        return
-
+def init_mlflow() -> None:
+    """Configure MLflow experiment tracking and tracing. Call once before run_uat()."""
+    global MLFLOW_ENABLED
     try:
-        from opentelemetry import trace
-        from opentelemetry.sdk.trace import TracerProvider
-        from opentelemetry.sdk.trace.export import BatchSpanProcessor
-        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-        from opentelemetry.sdk.resources import Resource
-        import atexit
-
-        # Configure OTLP exporter to Jaeger via gRPC (localhost:4317)
-        otlp_exporter = OTLPSpanExporter(
-            endpoint="http://localhost:4317",
-            insecure=True,
-        )
-
-        tracer_provider = TracerProvider(
-            resource=Resource.create({
-                "service.name": "fsi-lending-uat-agent",
-            })
-        )
-        tracer_provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
-        trace.set_tracer_provider(tracer_provider)
-        tracer = trace.get_tracer(__name__)
-
-        # Flush spans on exit
-        def shutdown_tracer():
-            if tracer_provider:
-                tracer_provider.shutdown()
-        atexit.register(shutdown_tracer)
-
-        # Anthropic instrumentation
-        try:
-            from opentelemetry.instrumentation.anthropic import AnthropicInstrumentor
-            AnthropicInstrumentor().instrument()
-            print("[OTel] Anthropic instrumentation enabled")
-        except ImportError:
-            print("[OTel] Anthropic instrumentation not available (optional)")
-
-        OTEL_ENABLED = True
-        print("[OTel] Tracing initialized (exporting to grpc://localhost:4317)")
-
+        import mlflow
+        mlflow.set_tracking_uri("sqlite:///mlruns/mlflow.db")
+        mlflow.set_experiment("lending-underwriting-uat")
+        MLFLOW_ENABLED = True
+        print("[MLflow] Enabled — run: mlflow ui --backend-store-uri sqlite:///mlruns/mlflow.db")
     except ImportError:
-        OTEL_ENABLED = False
-        tracer = None
-        print("[OTel] OpenTelemetry not available; instrumentation disabled")
+        print("[MLflow] Not installed: pip install 'mlflow>=2.14.0'")
     except Exception as exc:
-        OTEL_ENABLED = False
-        tracer = None
-        print(f"[OTel] Disabled due to error: {exc}")
+        print(f"[MLflow] Disabled: {exc}")
 
 
 def setup_logging(debug_enabled: bool) -> None:
@@ -158,16 +114,19 @@ class _NoOpSpan:
     def set_attribute(self, key, value): pass
     def add_event(self, name, attributes=None): pass
     def set_status(self, status): pass
+    def set_inputs(self, inputs: dict): pass
+    def set_outputs(self, outputs: dict): pass
 
 
 _NO_OP_SPAN = _NoOpSpan()
 
 
 @contextlib.contextmanager
-def trace_span(name: str):
-    """Context manager for creating a span - works with or without OTel enabled."""
-    if OTEL_ENABLED and tracer is not None:
-        with tracer.start_as_current_span(name) as span:
+def trace_span(name: str, span_type: str = "UNKNOWN"):
+    """Context manager for span tracing — yields the MLflow span when enabled, no-op otherwise."""
+    if MLFLOW_ENABLED:
+        import mlflow
+        with mlflow.start_span(name, span_type=span_type) as span:
             yield span
     else:
         yield _NO_OP_SPAN
@@ -290,6 +249,22 @@ class UsageStats:
     wall_clock_start: float = 0.0
     debug_events: list = field(default_factory=list)  # Full event data for --debug
 
+    def log_to_mlflow(self) -> None:
+        """Log session metrics to the active MLflow run."""
+        import mlflow
+        elapsed = time.time() - self.wall_clock_start
+        mlflow.log_metrics({
+            "api_calls": self.api_calls,
+            "tool_calls": self.tool_calls,
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "cache_read_tokens": self.cache_read_tokens,
+            "total_tokens": self.input_tokens + self.output_tokens,
+            "cost_multiplier": self.total_cost,
+            "llm_duration_ms": float(self.duration_ms),
+            "wall_clock_s": elapsed,
+        })
+
     def print_summary(self):
         """Print usage summary."""
         print("\n" + "=" * 60)
@@ -331,84 +306,126 @@ def create_tools() -> list[copilot_tools.Tool]:
     """Create SDK Tool objects with handlers."""
 
     async def handle_evaluate(invocation: copilot_tools.ToolInvocation) -> copilot_tools.ToolResult:
-        with trace_span("Tool: evaluate_application"):
+        with trace_span("Tool: evaluate_application", "TOOL") as span:
             args = invocation.arguments
+            app = args["application"]
+            span.set_inputs({
+                "credit_score": app.get("credit", {}).get("score"),
+                "income_type": app.get("income", {}).get("type"),
+            })
             key = cache_key("evaluate_application", args)
             cached = get_cached_value(key)
             if cached is not None:
                 print(f"[cache hit] evaluate_application: {key[:16]}...")
                 return copilot_tools.ToolResult(text_result_for_llm=cached)
-            
-            result = evaluate_application(args["application"])
+
+            result = evaluate_application(app)
+            span.set_outputs({"result": result.get("result"), "dti": round(float(result.get("dti_calculated", 0) or 0), 4)})
             text = str(result)
             set_cached_value(key, text)
             return copilot_tools.ToolResult(text_result_for_llm=text)
 
     async def handle_generate(invocation: copilot_tools.ToolInvocation) -> copilot_tools.ToolResult:
-        with trace_span("Tool: generate_synthetic_applicant"):
+        with trace_span("Tool: generate_synthetic_applicant", "TOOL") as span:
             args = invocation.arguments
+            span.set_inputs({"scenario_type": args["scenario_type"]})
             key = cache_key("generate_synthetic_applicant", args)
             cached = get_cached_value(key)
             if cached is not None:
                 print(f"[cache hit] generate_synthetic_applicant: {key[:16]}...")
                 return copilot_tools.ToolResult(text_result_for_llm=cached)
-            
+
             result = generate_synthetic_applicant(args["scenario_type"], args.get("params", {}))
+            span.set_outputs({"applicant_id": result.get("applicant_id", "")})
             text = str(result)
             set_cached_value(key, text)
             return copilot_tools.ToolResult(text_result_for_llm=text)
 
     async def handle_compare(invocation: copilot_tools.ToolInvocation) -> copilot_tools.ToolResult:
-        with trace_span("Tool: compare_decisions"):
+        with trace_span("Tool: compare_decisions", "TOOL") as span:
             args = invocation.arguments
+            span.set_inputs({"actual": args["actual"].get("result"), "expected": args["expected"]})
             key = cache_key("compare_decisions", args)
             cached = get_cached_value(key)
             if cached is not None:
                 print(f"[cache hit] compare_decisions: {key[:16]}...")
                 return copilot_tools.ToolResult(text_result_for_llm=cached)
-            
+
             result = compare_decisions(args["actual"], args["expected"])
+            span.set_outputs({"passed": result.get("passed")})
             text = str(result)
             set_cached_value(key, text)
             return copilot_tools.ToolResult(text_result_for_llm=text)
 
     async def handle_read_spec(invocation: copilot_tools.ToolInvocation) -> copilot_tools.ToolResult:
-        with trace_span("Tool: read_spec_rules"):
+        with trace_span("Tool: read_spec_rules", "TOOL") as span:
             args = invocation.arguments
+            span.set_inputs({"spec_path": args["spec_path"]})
             key = cache_key("read_spec_rules", args)
             cached = get_cached_value(key)
             if cached is not None:
                 print(f"[cache hit] read_spec_rules: {key[:16]}...")
                 return copilot_tools.ToolResult(text_result_for_llm=cached)
-            
+
             result = read_spec_rules(args["spec_path"])
+            span.set_outputs({
+                "requirements_count": len(result.get("requirements", [])),
+                "criteria_count": len(result.get("acceptance_criteria", [])),
+            })
             text = str(result)
             set_cached_value(key, text)
             return copilot_tools.ToolResult(text_result_for_llm=text)
 
     async def handle_report(invocation: copilot_tools.ToolInvocation) -> copilot_tools.ToolResult:
-        with trace_span("Tool: generate_report"):
+        with trace_span("Tool: generate_report", "TOOL") as span:
             args = invocation.arguments
-            result = generate_report(args["test_results"])
+            results = args["test_results"]
+            passed = sum(1 for r in results if r.get("passed"))
+            total = len(results)
+            span.set_inputs({"total_scenarios": total})
+
+            result_text = generate_report(results)
             report_dir = Path("tests/uat/reports")
             report_dir.mkdir(parents=True, exist_ok=True)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             report_file = report_dir / f"uat_report_{timestamp}.md"
-            report_file.write_text(result)
+            report_file.write_text(result_text)
+
+            span.set_outputs({"pass_rate": round(passed / total, 3) if total else 0.0, "passed": passed, "report_file": str(report_file)})
+
+            if MLFLOW_ENABLED:
+                import mlflow
+                if mlflow.active_run() is not None:
+                    mlflow.log_metrics({
+                        "pass_count": float(passed),
+                        "fail_count": float(total - passed),
+                        "pass_rate": passed / total if total else 0.0,
+                        "total_scenarios": float(total),
+                    })
+                    mlflow.log_artifact(str(report_file))
+
             return copilot_tools.ToolResult(
-                text_result_for_llm=f"Report saved to {report_file}\n\n{result}",
+                text_result_for_llm=f"Report saved to {report_file}\n\n{result_text}",
                 session_log=f"Saved report: {report_file}",
             )
 
     async def handle_run_scenario(invocation: copilot_tools.ToolInvocation) -> copilot_tools.ToolResult:
         """Execute a complete UAT validation for one scenario."""
-        with trace_span("Tool: run_scenario"):
+        with trace_span("Tool: run_scenario", "TOOL") as span:
             args = invocation.arguments
+            span.set_inputs({"scenario_type": args["scenario_type"], "expected": args["expected"]})
             result = run_scenario(
                 scenario_type=args["scenario_type"],
                 expected=args["expected"],
                 params=args.get("params", {}),
             )
+            comparison = result.get("comparison", {})
+            decision = result.get("decision", {})
+            span.set_outputs({
+                "passed": comparison.get("passed"),
+                "actual": decision.get("result"),
+                "dti": round(float(decision.get("dti_calculated", 0) or 0), 4),
+            })
             return copilot_tools.ToolResult(text_result_for_llm=str(result))
 
     return [
@@ -705,10 +722,41 @@ Always conclude by calling generate_report with collected results.
     logging.info("Task: %s", task)
     logging.info("Timeout: %ss", timeout)
 
-    # Send and wait with configured timeout
-    # Provide both prompt and messages for compatibility with SDK expectations.
-    with trace_span("Session Send And Wait"):
-        await session.send_and_wait(task_prompt, timeout=timeout)
+    # MLflow run wraps the entire session; FAILED status propagates automatically on exception.
+    scenarios_tag = ",".join(scenarios) if scenarios else "all"
+    mlflow_run_cm = contextlib.nullcontext()
+    if MLFLOW_ENABLED:
+        import mlflow
+        mlflow_run_cm = mlflow.start_run(tags={
+            "model": model or "default",
+            "scenarios": scenarios_tag,
+            "mode": "sdk",
+        })
+
+    with mlflow_run_cm:
+        if MLFLOW_ENABLED:
+            import mlflow
+            mlflow.log_params({
+                "model": model or "default",
+                "scenarios": scenarios_tag,
+                "timeout": timeout,
+            })
+
+        try:
+            with trace_span("UAT Session", "AGENT") as span:
+                span.set_inputs({"model": model or "default", "scenarios": scenarios_tag, "task": task})
+                await session.send_and_wait(task_prompt, timeout=timeout)
+                span.set_outputs({"status": "completed", "api_calls": stats.api_calls, "tool_calls": stats.tool_calls})
+                span.set_attribute("llm.token_count.prompt", stats.input_tokens)
+                span.set_attribute("llm.token_count.completion", stats.output_tokens)
+                span.set_attribute("llm.token_count.total", stats.input_tokens + stats.output_tokens)
+        finally:
+            await session.disconnect()
+            await client.stop()
+
+        # Log session-level metrics inside the run CM so the run is still active.
+        if MLFLOW_ENABLED:
+            stats.log_to_mlflow()
 
     if streaming:
         print()  # newline after streamed content
@@ -720,9 +768,6 @@ Always conclude by calling generate_report with collected results.
     if debug:
         stats.print_debug()
 
-    # Cleanup
-    await session.disconnect()
-    await client.stop()
     print("\n✓ Session complete")
 
 
@@ -731,37 +776,61 @@ async def run_manual_uat():
     logging.info("=== Manual UAT (No SDK) ===")
 
     scenarios = DEFAULT_SCENARIOS
+    scenarios_tag = "all"
 
-    results = []
-    for scenario_type, expected in scenarios:
-        logging.info("scenario start: %s", scenario_type)
-        scenario_result = run_scenario(scenario_type, expected, {})
-        applicant = scenario_result["applicant"]
-        decision = scenario_result["decision"]
-        comparison = scenario_result["comparison"]
-        logging.info("generated applicant: %s", applicant.get("applicant_id"))
-        logging.info("decision: %s (DTI: %.1f%%)", decision.get('result'), decision.get('dti_calculated', 0) * 100)
-        status = "pass" if comparison["passed"] else "fail"
-        logging.info("compare: %s expected=%s got=%s", status, expected, decision.get('result'))
+    mlflow_run_cm = contextlib.nullcontext()
+    if MLFLOW_ENABLED:
+        import mlflow
+        mlflow_run_cm = mlflow.start_run(tags={"mode": "manual", "scenarios": scenarios_tag})
 
-        results.append({
-            "scenario": scenario_type,
-            "passed": comparison["passed"],
-            "expected": expected,
-            "actual": decision["result"],
-            "applicant": applicant,
-            "decision": decision,
-            "diff": comparison.get("diff")
-        })
+    with mlflow_run_cm:
+        if MLFLOW_ENABLED:
+            import mlflow
+            mlflow.log_params({"mode": "manual", "scenarios": scenarios_tag})
 
-    report = generate_report(results)
-    report_path = Path("tests/uat/reports")
-    report_path.mkdir(parents=True, exist_ok=True)
-    report_file = report_path / "uat-report-manual.md"
-    report_file.write_text(report)
+        results = []
+        for scenario_type, expected in scenarios:
+            logging.info("scenario start: %s", scenario_type)
+            scenario_result = run_scenario(scenario_type, expected, {})
+            applicant = scenario_result["applicant"]
+            decision = scenario_result["decision"]
+            comparison = scenario_result["comparison"]
+            logging.info("generated applicant: %s", applicant.get("applicant_id"))
+            logging.info("decision: %s (DTI: %.1f%%)", decision.get('result'), decision.get('dti_calculated', 0) * 100)
+            status = "pass" if comparison["passed"] else "fail"
+            logging.info("compare: %s expected=%s got=%s", status, expected, decision.get('result'))
+
+            results.append({
+                "scenario": scenario_type,
+                "passed": comparison["passed"],
+                "expected": expected,
+                "actual": decision["result"],
+                "applicant": applicant,
+                "decision": decision,
+                "diff": comparison.get("diff")
+            })
+
+        report = generate_report(results)
+        report_path = Path("tests/uat/reports")
+        report_path.mkdir(parents=True, exist_ok=True)
+        report_file = report_path / "uat-report-manual.md"
+        report_file.write_text(report)
+
+        if MLFLOW_ENABLED:
+            import mlflow
+            passed = sum(1 for r in results if r.get("passed"))
+            total = len(results)
+            mlflow.log_metrics({
+                "pass_count": float(passed),
+                "fail_count": float(total - passed),
+                "pass_rate": passed / total if total else 0.0,
+                "total_scenarios": float(total),
+            })
+            mlflow.log_artifact(str(report_file))
 
     print(f"\n=== Report saved: {report_file} ===")
     print("\n" + report)
+
 
 
 def main():
@@ -791,7 +860,7 @@ Available scenarios:
     parser.add_argument("--debug", "-d", action="store_true",
                         help="Capture and print all event data (quota, compaction, context, etc.)")
     parser.add_argument("--manual", action="store_true", help="Run without SDK (direct tool calls)")
-    parser.add_argument("--tracing", action="store_true", help="Enable OpenTelemetry tracing (exports to localhost:4317)")
+    parser.add_argument("--mlflow", action="store_true", help="Enable MLflow experiment tracking (stored in ./mlruns; view with: mlflow ui)")
 
     args = parser.parse_args()
 
@@ -803,8 +872,8 @@ Available scenarios:
         asyncio.run(list_models())
     else:
         # Initialize tracing only when explicitly requested
-        if args.tracing:
-            init_tracing()
+        if args.mlflow:
+            init_mlflow()
 
         # Warn if --task looks like scenario names
         if args.task != "Run UAT for lending underwriting":

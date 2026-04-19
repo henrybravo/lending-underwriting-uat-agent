@@ -1,9 +1,5 @@
 # GitHub Copilot SDK
 github-copilot-sdk==0.2.2
 
-# OpenTelemetry tracing
-opentelemetry-sdk
-opentelemetry-exporter-otlp-proto-grpc
-
-# Optional: Anthropic instrumentation for OTel
-opentelemetry-instrumentation-anthropic
+# MLflow experiment tracking and tracing
+mlflow>=2.14.0
