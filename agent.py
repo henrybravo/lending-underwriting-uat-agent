@@ -122,11 +122,11 @@ _NO_OP_SPAN = _NoOpSpan()
 
 
 @contextlib.contextmanager
-def trace_span(name: str):
+def trace_span(name: str, span_type: str = "UNKNOWN"):
     """Context manager for span tracing — yields the MLflow span when enabled, no-op otherwise."""
     if MLFLOW_ENABLED:
         import mlflow
-        with mlflow.start_span(name) as span:
+        with mlflow.start_span(name, span_type=span_type) as span:
             yield span
     else:
         yield _NO_OP_SPAN
@@ -306,7 +306,7 @@ def create_tools() -> list[copilot_tools.Tool]:
     """Create SDK Tool objects with handlers."""
 
     async def handle_evaluate(invocation: copilot_tools.ToolInvocation) -> copilot_tools.ToolResult:
-        with trace_span("Tool: evaluate_application") as span:
+        with trace_span("Tool: evaluate_application", "TOOL") as span:
             args = invocation.arguments
             app = args["application"]
             span.set_inputs({
@@ -326,7 +326,7 @@ def create_tools() -> list[copilot_tools.Tool]:
             return copilot_tools.ToolResult(text_result_for_llm=text)
 
     async def handle_generate(invocation: copilot_tools.ToolInvocation) -> copilot_tools.ToolResult:
-        with trace_span("Tool: generate_synthetic_applicant") as span:
+        with trace_span("Tool: generate_synthetic_applicant", "TOOL") as span:
             args = invocation.arguments
             span.set_inputs({"scenario_type": args["scenario_type"]})
             key = cache_key("generate_synthetic_applicant", args)
@@ -342,7 +342,7 @@ def create_tools() -> list[copilot_tools.Tool]:
             return copilot_tools.ToolResult(text_result_for_llm=text)
 
     async def handle_compare(invocation: copilot_tools.ToolInvocation) -> copilot_tools.ToolResult:
-        with trace_span("Tool: compare_decisions") as span:
+        with trace_span("Tool: compare_decisions", "TOOL") as span:
             args = invocation.arguments
             span.set_inputs({"actual": args["actual"].get("result"), "expected": args["expected"]})
             key = cache_key("compare_decisions", args)
@@ -358,7 +358,7 @@ def create_tools() -> list[copilot_tools.Tool]:
             return copilot_tools.ToolResult(text_result_for_llm=text)
 
     async def handle_read_spec(invocation: copilot_tools.ToolInvocation) -> copilot_tools.ToolResult:
-        with trace_span("Tool: read_spec_rules") as span:
+        with trace_span("Tool: read_spec_rules", "TOOL") as span:
             args = invocation.arguments
             span.set_inputs({"spec_path": args["spec_path"]})
             key = cache_key("read_spec_rules", args)
@@ -377,7 +377,7 @@ def create_tools() -> list[copilot_tools.Tool]:
             return copilot_tools.ToolResult(text_result_for_llm=text)
 
     async def handle_report(invocation: copilot_tools.ToolInvocation) -> copilot_tools.ToolResult:
-        with trace_span("Tool: generate_report") as span:
+        with trace_span("Tool: generate_report", "TOOL") as span:
             args = invocation.arguments
             results = args["test_results"]
             passed = sum(1 for r in results if r.get("passed"))
@@ -411,7 +411,7 @@ def create_tools() -> list[copilot_tools.Tool]:
 
     async def handle_run_scenario(invocation: copilot_tools.ToolInvocation) -> copilot_tools.ToolResult:
         """Execute a complete UAT validation for one scenario."""
-        with trace_span("Tool: run_scenario") as span:
+        with trace_span("Tool: run_scenario", "TOOL") as span:
             args = invocation.arguments
             span.set_inputs({"scenario_type": args["scenario_type"], "expected": args["expected"]})
             result = run_scenario(
@@ -743,10 +743,13 @@ Always conclude by calling generate_report with collected results.
             })
 
         try:
-            with trace_span("UAT Session") as span:
+            with trace_span("UAT Session", "AGENT") as span:
                 span.set_inputs({"model": model or "default", "scenarios": scenarios_tag, "task": task})
                 await session.send_and_wait(task_prompt, timeout=timeout)
                 span.set_outputs({"status": "completed", "api_calls": stats.api_calls, "tool_calls": stats.tool_calls})
+                span.set_attribute("llm.token_count.prompt", stats.input_tokens)
+                span.set_attribute("llm.token_count.completion", stats.output_tokens)
+                span.set_attribute("llm.token_count.total", stats.input_tokens + stats.output_tokens)
         finally:
             await session.disconnect()
             await client.stop()
