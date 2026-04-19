@@ -17,6 +17,16 @@ mlflow ui --backend-store-uri sqlite:///mlruns/mlflow.db
 # → http://localhost:5000
 ```
 
+## UI Overview
+
+**Usage tab** — traces count, latency percentiles, error rate, token usage (input/output/cache), and tokens-per-trace over time:
+
+![MLflow Overview – Usage tab](mlflow-usage.png)
+
+**Tool calls tab** — per-tool call counts, success rate, avg latency, usage over time, and error rates broken down by tool:
+
+![MLflow Overview – Tool calls tab](mlflow-tool_calls.png)
+
 ## What Gets Logged
 
 Each `agent.py` invocation with `--mlflow` creates one MLflow **run** under the
