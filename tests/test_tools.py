@@ -43,9 +43,12 @@ def test_generate_param_overrides():
 
 
 def test_generate_unknown_scenario():
-    """Unknown scenario falls back to base template (doesn't crash)."""
-    app = generate_synthetic_applicant("nonexistent_scenario", {})
-    assert "income" in app
+    """Unknown scenarios should raise an explicit validation error."""
+    try:
+        generate_synthetic_applicant("nonexistent_scenario", {})
+        assert False, "Expected ValueError for unknown scenario"
+    except ValueError as exc:
+        assert "Unknown scenario_type" in str(exc)
 
 
 def test_deep_merge():
@@ -180,6 +183,11 @@ def test_read_spec_rules():
     spec_path = "openspec/specs/lending-underwriting/spec.md"
     result = read_spec_rules(spec_path)
     assert "error" not in result, f"unexpected error: {result.get('error')}"
+    assert len(result["requirements"]) >= 5
+    assert any(r["id"] == "Income Verification" for r in result["requirements"])
+    assert len(result["acceptance_criteria"]) >= 10
+    assert any(c["name"] == "W2 annualized income" for c in result["acceptance_criteria"])
+    assert all("\n" not in c["name"] for c in result["acceptance_criteria"])
     assert "thresholds" in result
     assert result["thresholds"]["dti_auto_approve"] == 36
     assert result["thresholds"]["credit_minimum"] == 620

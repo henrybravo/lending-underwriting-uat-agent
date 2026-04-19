@@ -3,13 +3,12 @@ Execute complete UAT validation for one scenario:
 generate synthetic applicant -> run through decision engine -> compare against expected outcome
 """
 
-from typing import Dict, Any, Optional
 from tools.generate_synthetic_applicant import generate_synthetic_applicant
 from tools.evaluate_application import evaluate_application
 from tools.compare_decisions import compare_decisions
 
 
-def run_scenario(scenario_type: str, expected: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def run_scenario(scenario_type: str, expected: str, params: dict | None = None) -> dict:
     """
     Execute a complete UAT validation for one scenario: generate synthetic applicant, 
     run through decision engine, compare against expected outcome.
