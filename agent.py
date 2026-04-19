@@ -18,6 +18,7 @@ import argparse
 import contextlib
 import hashlib
 import json
+import shelve
 import sys
 from pathlib import Path
 from datetime import datetime
@@ -34,7 +35,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 # Import tool handlers
 from tools.evaluate_application import evaluate_application
-from tools.generate_synthetic_applicant import generate_synthetic_applicant
+from tools.generate_synthetic_applicant import generate_synthetic_applicant, KNOWN_SCENARIOS
 from tools.compare_decisions import compare_decisions
 from tools.read_spec_rules import read_spec_rules
 from tools.generate_report import generate_report
@@ -158,6 +159,15 @@ def get_field(obj, name: str, default=None):
     return getattr(obj, name, default)
 
 
+class _NoOpSpan:
+    def set_attribute(self, key, value): pass
+    def add_event(self, name, attributes=None): pass
+    def set_status(self, status): pass
+
+
+_NO_OP_SPAN = _NoOpSpan()
+
+
 @contextlib.contextmanager
 def trace_span(name: str):
     """Context manager for creating a span - works with or without OTel enabled."""
@@ -165,17 +175,11 @@ def trace_span(name: str):
         with tracer.start_as_current_span(name) as span:
             yield span
     else:
-        class NoOpSpan:
-            def set_attribute(self, key, value): pass
-            def add_event(self, name, attributes=None): pass
-            def set_status(self, status): pass
-        yield NoOpSpan()
+        yield _NO_OP_SPAN
 
 
 def get_cached_value(key: str) -> str | None:
     """Retrieve cached string value if exists and not expired."""
-    import shelve
-
     try:
         with shelve.open(CACHE_FILE) as db:
             entry = db.get(key)
@@ -211,8 +215,6 @@ def get_cached_value(key: str) -> str | None:
 
 def set_cached_value(key: str, value: str) -> None:
     """Store string value with timestamp."""
-    import shelve
-
     try:
         with shelve.open(CACHE_FILE) as db:
             db[key] = {"value": value, "timestamp": time.time()}
@@ -236,7 +238,21 @@ DEFAULT_SCENARIOS = [
 ]
 SCENARIO_NAMES = [name for name, _ in DEFAULT_SCENARIOS]
 SCENARIO_NAMES_CSV = ", ".join(SCENARIO_NAMES)
-KNOWN_SCENARIOS = set(SCENARIO_NAMES)
+# Sanity-check that agent's scenario catalog matches the tools validator.
+assert set(SCENARIO_NAMES) == KNOWN_SCENARIOS, (
+    f"Scenario drift: agent={set(SCENARIO_NAMES)} tools={KNOWN_SCENARIOS}"
+)
+
+# Names of tools we register with the SDK; used to filter tool-execution events
+# so SDK-internal tools (skill, report_intent, etc.) are not counted.
+REGISTERED_TOOL_NAMES = frozenset({
+    "evaluate_application",
+    "generate_synthetic_applicant",
+    "compare_decisions",
+    "read_spec_rules",
+    "generate_report",
+    "run_scenario",
+})
 
 
 def parse_scenarios_arg(raw_scenarios: str | None) -> list[str] | None:
@@ -277,7 +293,6 @@ class UsageStats:
     tool_calls: int = 0
     duration_ms: int = 0
     wall_clock_start: float = 0.0
-    events: list = field(default_factory=list)
     debug_events: list = field(default_factory=list)  # Full event data for --debug
 
     def print_summary(self):
@@ -378,8 +393,6 @@ def create_tools() -> list[copilot_tools.Tool]:
 
     async def handle_report(invocation: copilot_tools.ToolInvocation) -> copilot_tools.ToolResult:
         with trace_span("Tool: generate_report"):
-            from datetime import datetime
-            
             args = invocation.arguments
             result = generate_report(args["test_results"])
             report_dir = Path("tests/uat/reports")
@@ -391,6 +404,17 @@ def create_tools() -> list[copilot_tools.Tool]:
                 text_result_for_llm=f"Report saved to {report_file}\n\n{result}",
                 session_log=f"Saved report: {report_file}",
             )
+
+    async def handle_run_scenario(invocation: copilot_tools.ToolInvocation) -> copilot_tools.ToolResult:
+        """Execute a complete UAT validation for one scenario."""
+        with trace_span("Tool: run_scenario"):
+            args = invocation.arguments
+            result = run_scenario(
+                scenario_type=args["scenario_type"],
+                expected=args["expected"],
+                params=args.get("params", {}),
+            )
+            return copilot_tools.ToolResult(text_result_for_llm=str(result))
 
     return [
         copilot_tools.Tool(
@@ -501,18 +525,6 @@ def create_tools() -> list[copilot_tools.Tool]:
     ]
 
 
-async def handle_run_scenario(invocation: copilot_tools.ToolInvocation) -> copilot_tools.ToolResult:
-    """Execute a complete UAT validation for one scenario."""
-    with trace_span("Tool: run_scenario"):
-        args = invocation.arguments
-        result = run_scenario(
-            scenario_type=args["scenario_type"],
-            expected=args["expected"],
-            params=args.get("params", {}),
-        )
-        return copilot_tools.ToolResult(text_result_for_llm=str(result))
-
-
 async def list_models():
     """List available models from Copilot CLI."""
     logging.info("Connecting to Copilot CLI to list models")
@@ -607,7 +619,6 @@ async def run_uat(task: str, model: str = None, scenarios: list[str] = None, str
     def on_event(event: copilot_session.SessionEvent):
         raw_type = str(event.type.value) if hasattr(event.type, 'value') else str(event.type)
         event_type = raw_type.lower()
-        stats.events.append(raw_type)
 
         data = getattr(event, 'data', None)
 
@@ -639,14 +650,11 @@ async def run_uat(task: str, model: str = None, scenarios: list[str] = None, str
             except Exception:
                 pass
 
-        # Count API responses whenever token usage fields are present.
-        # (already counted above for assistant.usage events)
-
         # Count tool executions (start events only, not complete)
         if event_type == "tool.execution_start":
             tool_name = getattr(data, 'tool_name', None) or getattr(data, 'name', None) or 'unknown'
             # Only count our registered tools, not SDK internals (skill, report_intent, etc.)
-            if tool_name in {"generate_synthetic_applicant", "evaluate_application", "compare_decisions", "read_spec_rules", "generate_report", "run_scenario"}:
+            if tool_name in REGISTERED_TOOL_NAMES:
                 stats.tool_calls += 1
                 tool_args = getattr(data, 'arguments', None) or {}
                 scenario = tool_args.get("scenario_type", "")
@@ -663,7 +671,7 @@ async def run_uat(task: str, model: str = None, scenarios: list[str] = None, str
                 logging.info("session model selected: %s", selected)
 
         # Debug: surface unexpected event types
-        if event_type not in {"assistant.message_delta", "tool.execution_start", "tool.execution_complete", "session.start", "session.model_selected", "api.response"}:
+        if event_type not in {"assistant.message_delta", "tool.execution_start", "tool.execution_complete", "session.start", "session.model_selected", "assistant.usage"}:
             extra = getattr(data, 'event', None) or getattr(data, 'type', None)
             if extra:
                 print(f"  [event] {raw_type} ({extra})")
