@@ -61,10 +61,10 @@ def init_mlflow() -> None:
     global MLFLOW_ENABLED
     try:
         import mlflow
-        mlflow.set_tracking_uri("mlruns")
+        mlflow.set_tracking_uri("sqlite:///mlruns/mlflow.db")
         mlflow.set_experiment("lending-underwriting-uat")
         MLFLOW_ENABLED = True
-        print("[MLflow] Enabled — run: mlflow ui --backend-store-uri mlruns")
+        print("[MLflow] Enabled — run: mlflow ui --backend-store-uri sqlite:///mlruns/mlflow.db")
     except ImportError:
         print("[MLflow] Not installed: pip install 'mlflow>=2.14.0'")
     except Exception as exc:

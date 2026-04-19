@@ -13,7 +13,7 @@ MLflow replaces the previous Jaeger/OpenTelemetry integration. It provides:
 uv run python agent.py --model claude-sonnet-4.5 --mlflow
 
 # 2. Open the MLflow UI (in a separate terminal from the repo root)
-mlflow ui --backend-store-uri mlruns
+mlflow ui --backend-store-uri sqlite:///mlruns/mlflow.db
 # → http://localhost:5000
 ```
 
@@ -67,7 +67,7 @@ In the MLflow UI at `http://localhost:5000`:
 # Example: compare claude-sonnet-4.5 vs gpt-4.1
 uv run python agent.py --model claude-sonnet-4.5 --mlflow
 uv run python agent.py --model gpt-4.1 --mlflow
-mlflow ui --backend-store-uri mlruns
+mlflow ui --backend-store-uri sqlite:///mlruns/mlflow.db
 ```
 
 ## Manual Mode
@@ -82,8 +82,9 @@ Logs `pass_rate`, `pass_count`, `fail_count`, `total_scenarios`, and the manual 
 
 ## Storage
 
-Runs are stored locally under `mlruns/` in the repo root (file-based, no server needed).
-The directory is git-ignored by default — add it to `.gitignore` if not already present.
+Runs are stored locally in `mlruns/mlflow.db` (SQLite, no server needed).
+The `mlruns/` directory is git-ignored. The SQLite backend enables the MLflow
+**Overview** tab (run comparison charts, metric history, artifact browser).
 
 ## Cleanup
 
