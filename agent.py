@@ -22,6 +22,7 @@ import sys
 from pathlib import Path
 from datetime import datetime
 import logging
+import time
 from dataclasses import dataclass, field
 
 import copilot
@@ -220,6 +221,7 @@ class UsageStats:
     api_calls: int = 0
     tool_calls: int = 0
     duration_ms: int = 0
+    wall_clock_start: float = 0.0
     events: list = field(default_factory=list)
     debug_events: list = field(default_factory=list)  # Full event data for --debug
 
@@ -252,7 +254,10 @@ class UsageStats:
         if self.total_cost > 0:
             print(f"  Billing Multiplier: {self.total_cost:.1f}x")
         if self.duration_ms > 0:
-            print(f"  Total Duration:     {self.duration_ms}ms")
+            print(f"  LLM Duration:       {self.duration_ms:,}ms")
+        if self.wall_clock_start > 0:
+            elapsed = time.time() - self.wall_clock_start
+            print(f"  Wall Clock:         {elapsed:.1f}s")
         print("=" * 60)
 
     def print_debug(self):
@@ -553,7 +558,7 @@ async def run_uat(task: str, model: str = None, scenarios: list[str] = None, str
     logging.info("Registered %s tools", len(tools))
 
     # Track usage stats
-    stats = UsageStats()
+    stats = UsageStats(wall_clock_start=time.time())
 
     def _update_stats_from_usage(data):
         """Extract usage stats from ASSISTANT_USAGE event data only."""
@@ -562,7 +567,7 @@ async def run_uat(task: str, model: str = None, scenarios: list[str] = None, str
         stats.cache_read_tokens += int(getattr(data, 'cache_read_tokens', 0) or 0)
         stats.cache_write_tokens += int(getattr(data, 'cache_write_tokens', 0) or 0)
         stats.total_cost += getattr(data, 'cost', 0) or 0
-        stats.duration_ms += int(getattr(data, 'duration_ms', 0) or 0)
+        stats.duration_ms += int(getattr(data, 'duration', 0) or 0)
         selected_model = getattr(data, 'model', None)
         if selected_model:
             stats.model = selected_model
