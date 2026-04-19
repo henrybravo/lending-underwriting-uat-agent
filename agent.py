@@ -38,6 +38,7 @@ from tools.generate_synthetic_applicant import generate_synthetic_applicant
 from tools.compare_decisions import compare_decisions
 from tools.read_spec_rules import read_spec_rules
 from tools.generate_report import generate_report
+from tools.run_scenario import run_scenario
 
 
 # Paths for agent/skill loading
@@ -174,39 +175,93 @@ def trace_span(name: str):
 def get_cached_value(key: str) -> str | None:
     """Retrieve cached string value if exists and not expired."""
     import shelve
-    import time
+
+    try:
+        with shelve.open(CACHE_FILE) as db:
+            entry = db.get(key)
+    except OSError as exc:
+        logging.warning("Tool cache read failed: %s", exc)
+        return None
+
+    if entry is None:
+        return None
+    if not isinstance(entry, dict):
+        logging.warning("Tool cache entry is malformed for key=%s", key[:16])
+        return None
+
+    timestamp = entry.get("timestamp")
+    value = entry.get("value")
+    if not isinstance(timestamp, (int, float)) or not isinstance(value, str):
+        logging.warning("Tool cache entry has invalid types for key=%s", key[:16])
+        return None
+
+    if time.time() - timestamp < CACHE_TTL_SECONDS:
+        return value
+
+    # Expired cache entry - best effort cleanup.
     try:
         with shelve.open(CACHE_FILE) as db:
             if key in db:
-                entry = db[key]
-                if time.time() - entry["timestamp"] < CACHE_TTL_SECONDS:
-                    return entry["value"]
-                else:
-                    # Expired, delete it
-                    del db[key]
-    except Exception:
-        pass
+                del db[key]
+    except OSError as exc:
+        logging.warning("Tool cache cleanup failed: %s", exc)
+
     return None
 
 
 def set_cached_value(key: str, value: str) -> None:
     """Store string value with timestamp."""
     import shelve
-    import time
+
     try:
         with shelve.open(CACHE_FILE) as db:
             db[key] = {"value": value, "timestamp": time.time()}
-    except Exception:
-        pass
+    except OSError as exc:
+        logging.warning("Tool cache write failed: %s", exc)
 
 
-# Known scenario names for validation
-KNOWN_SCENARIOS = {
-    "standard_approval", "dti_at_36_boundary", "dti_at_43_boundary",
-    "self_employed_stable", "rental_income", "credit_minimum",
-    "credit_below_minimum", "recent_bankruptcy_ch7", "compensating_factors",
-    "pension_income", "bonus_income"
-}
+# Default scenario catalog and expected outcomes.
+DEFAULT_SCENARIOS = [
+    ("standard_approval", "AUTO_APPROVE"),
+    ("dti_at_36_boundary", "AUTO_APPROVE"),
+    ("dti_at_43_boundary", "MANUAL_REVIEW"),
+    ("self_employed_stable", "AUTO_APPROVE"),
+    ("rental_income", "AUTO_APPROVE"),
+    ("credit_minimum", "MANUAL_REVIEW"),
+    ("credit_below_minimum", "AUTO_DENY"),
+    ("recent_bankruptcy_ch7", "AUTO_DENY"),
+    ("compensating_factors", "AUTO_APPROVE"),
+    ("pension_income", "AUTO_APPROVE"),
+    ("bonus_income", "AUTO_APPROVE"),
+]
+SCENARIO_NAMES = [name for name, _ in DEFAULT_SCENARIOS]
+SCENARIO_NAMES_CSV = ", ".join(SCENARIO_NAMES)
+KNOWN_SCENARIOS = set(SCENARIO_NAMES)
+
+
+def parse_scenarios_arg(raw_scenarios: str | None) -> list[str] | None:
+    """Parse, normalize, and validate --scenarios input."""
+    if raw_scenarios is None:
+        return None
+
+    normalized = raw_scenarios.strip()
+    if not normalized:
+        raise ValueError("Empty --scenarios value. Provide names or use --scenarios all.")
+    if normalized.lower() == "all":
+        return None
+
+    scenarios = [part.strip() for part in normalized.split(",") if part.strip()]
+    if not scenarios:
+        raise ValueError("No valid scenario names found in --scenarios.")
+
+    unknown = [name for name in scenarios if name not in KNOWN_SCENARIOS]
+    if unknown:
+        unknown_csv = ", ".join(unknown)
+        raise ValueError(
+            f"Unknown scenario(s): {unknown_csv}. Valid scenarios: {SCENARIO_NAMES_CSV}"
+        )
+
+    return scenarios
 
 
 @dataclass
@@ -224,18 +279,6 @@ class UsageStats:
     wall_clock_start: float = 0.0
     events: list = field(default_factory=list)
     debug_events: list = field(default_factory=list)  # Full event data for --debug
-
-    def add_api_response(self, data):
-        """Update stats from an API response event."""
-        self.api_calls += 1
-        self.input_tokens += int(getattr(data, 'input_tokens', 0) or 0)
-        self.output_tokens += int(getattr(data, 'output_tokens', 0) or 0)
-        self.cache_read_tokens += int(getattr(data, 'cache_read_tokens', 0) or 0)
-        self.cache_write_tokens += int(getattr(data, 'cache_write_tokens', 0) or 0)
-        self.total_cost += getattr(data, 'cost', 0) or 0
-        self.duration_ms += getattr(data, 'duration', 0) or 0
-        if hasattr(data, 'model') and data.model:
-            self.model = data.model
 
     def print_summary(self):
         """Print usage summary."""
@@ -373,7 +416,8 @@ def create_tools() -> list[copilot_tools.Tool]:
                 "properties": {
                     "scenario_type": {
                         "type": "string",
-                        "description": "Scenario: standard_approval, dti_at_36_boundary, dti_at_43_boundary, self_employed_stable, rental_income, credit_minimum, credit_below_minimum, recent_bankruptcy_ch7, compensating_factors, pension_income, bonus_income"
+                        "description": f"Scenario: {SCENARIO_NAMES_CSV}",
+                        "enum": SCENARIO_NAMES,
                     },
                     "params": {"type": "object", "description": "Override parameters"}
                 },
@@ -441,7 +485,8 @@ def create_tools() -> list[copilot_tools.Tool]:
                 "properties": {
                     "scenario_type": {
                         "type": "string",
-                        "description": "Scenario: standard_approval, dti_at_36_boundary, dti_at_43_boundary, self_employed_stable, rental_income, credit_minimum, credit_below_minimum, recent_bankruptcy_ch7, compensating_factors, pension_income, bonus_income"
+                        "description": f"Scenario: {SCENARIO_NAMES_CSV}",
+                        "enum": SCENARIO_NAMES,
                     },
                     "expected": {
                         "type": "string",
@@ -460,29 +505,11 @@ async def handle_run_scenario(invocation: copilot_tools.ToolInvocation) -> copil
     """Execute a complete UAT validation for one scenario."""
     with trace_span("Tool: run_scenario"):
         args = invocation.arguments
-        scenario_type = args["scenario_type"]
-        expected = args["expected"]
-        params = args.get("params", {})
-
-        with trace_span("Generate Applicant"):
-            applicant = generate_synthetic_applicant(scenario_type, params)
-
-        with trace_span("Evaluate Application"):
-            decision = evaluate_application(applicant)
-
-        with trace_span("Compare Decisions"):
-            comparison = compare_decisions(decision, expected)
-
-        result = {
-            "scenario": scenario_type,
-            "applicant": applicant,
-            "decision": decision,
-            "comparison": comparison,
-            "passed": comparison.get("passed", False),
-            "expected": expected,
-            "actual": decision.get("result", "UNKNOWN")
-        }
-
+        result = run_scenario(
+            scenario_type=args["scenario_type"],
+            expected=args["expected"],
+            params=args.get("params", {}),
+        )
         return copilot_tools.ToolResult(text_result_for_llm=str(result))
 
 
@@ -513,7 +540,11 @@ async def list_models():
             "Name": name,
             "Vision": "✓" if get_field(supports, "vision") else "",
             "State": get_field(policy, "state", ""),
-            "Billing": "[REDACTED]" if get_field(billing, "multiplier") else "",
+            "Billing": (
+                f"{get_field(billing, 'multiplier')}x"
+                if get_field(billing, "multiplier") is not None
+                else ""
+            ),
             "Max Prompt": f"{get_field(limits, 'max_prompt_tokens', 0):,}",
             "Max Context": f"{get_field(limits, 'max_context_window_tokens', 0):,}",
         })
@@ -696,30 +727,17 @@ async def run_manual_uat():
     """Run UAT without SDK, using tools directly."""
     logging.info("=== Manual UAT (No SDK) ===")
 
-    scenarios = [
-        ("standard_approval", "AUTO_APPROVE"),
-        ("dti_at_36_boundary", "AUTO_APPROVE"),
-        ("dti_at_43_boundary", "MANUAL_REVIEW"),
-        ("self_employed_stable", "AUTO_APPROVE"),
-        ("rental_income", "AUTO_APPROVE"),
-        ("credit_minimum", "MANUAL_REVIEW"),
-        ("credit_below_minimum", "AUTO_DENY"),
-        ("recent_bankruptcy_ch7", "AUTO_DENY"),
-        ("compensating_factors", "AUTO_APPROVE"),
-        ("pension_income", "AUTO_APPROVE"),
-        ("bonus_income", "AUTO_APPROVE"),
-    ]
+    scenarios = DEFAULT_SCENARIOS
 
     results = []
     for scenario_type, expected in scenarios:
         logging.info("scenario start: %s", scenario_type)
-        applicant = generate_synthetic_applicant(scenario_type, {})
-        logging.info("generated applicant: %s", applicant.get('applicant_id'))
-
-        decision = evaluate_application(applicant)
+        scenario_result = run_scenario(scenario_type, expected, {})
+        applicant = scenario_result["applicant"]
+        decision = scenario_result["decision"]
+        comparison = scenario_result["comparison"]
+        logging.info("generated applicant: %s", applicant.get("applicant_id"))
         logging.info("decision: %s (DTI: %.1f%%)", decision.get('result'), decision.get('dti_calculated', 0) * 100)
-
-        comparison = compare_decisions(decision, expected)
         status = "pass" if comparison["passed"] else "fail"
         logging.info("compare: %s expected=%s got=%s", status, expected, decision.get('result'))
 
@@ -747,19 +765,16 @@ def main():
     parser = argparse.ArgumentParser(
         description="UAT Validator Agent - Copilot SDK",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
+        epilog=f"""
 Examples:
-  python agent.py --list-models
-  python agent.py --model claude-sonnet-4.5
-  python agent.py --model claude-sonnet-4.5 --scenarios "rental_income,pension_income"
-  python agent.py --model claude-sonnet-4.5 --debug --scenarios "standard_approval"
-  python agent.py --manual
+  uv run python agent.py --list-models
+  uv run python agent.py --model claude-sonnet-4.5
+  uv run python agent.py --model claude-sonnet-4.5 --scenarios "rental_income,pension_income"
+  uv run python agent.py --model claude-sonnet-4.5 --debug --scenarios "standard_approval"
+  uv run python agent.py --manual
 
 Available scenarios:
-  standard_approval, dti_at_36_boundary, dti_at_43_boundary,
-  self_employed_stable, rental_income, credit_minimum,
-  credit_below_minimum, recent_bankruptcy_ch7, compensating_factors,
-  pension_income
+  {SCENARIO_NAMES_CSV}
         """
     )
     parser.add_argument("--list-models", action="store_true", help="List available models and exit")
@@ -802,11 +817,10 @@ Available scenarios:
         if args.manual:
             asyncio.run(run_manual_uat())
         else:
-            # Handle --scenarios all as explicit "run all scenarios"
-            if args.scenarios and args.scenarios.lower() == "all":
-                scenarios = None
-            else:
-                scenarios = args.scenarios.split(",") if args.scenarios else None
+            try:
+                scenarios = parse_scenarios_arg(args.scenarios)
+            except ValueError as exc:
+                parser.error(str(exc))
             asyncio.run(run_uat(args.task, args.model, scenarios, not args.no_streaming, args.timeout, args.debug))
 
 

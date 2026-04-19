@@ -2,6 +2,20 @@
 Create test application for specific scenario
 """
 
+KNOWN_SCENARIOS = {
+    "standard_approval",
+    "dti_at_36_boundary",
+    "dti_at_43_boundary",
+    "self_employed_stable",
+    "rental_income",
+    "credit_minimum",
+    "credit_below_minimum",
+    "recent_bankruptcy_ch7",
+    "compensating_factors",
+    "pension_income",
+    "bonus_income",
+}
+
 
 def generate_synthetic_applicant(scenario_type: str, params: dict) -> dict:
     """
@@ -139,8 +153,14 @@ def generate_synthetic_applicant(scenario_type: str, params: dict) -> dict:
         }
     }
 
-    # Get scenario template or use params as override
-    scenario = scenarios.get(scenario_type, {})
+    if scenario_type not in KNOWN_SCENARIOS:
+        supported = ", ".join(sorted(KNOWN_SCENARIOS))
+        raise ValueError(
+            f"Unknown scenario_type '{scenario_type}'. Supported scenarios: {supported}"
+        )
+
+    # Get scenario template
+    scenario = scenarios[scenario_type]
 
     # Deep merge: base <- scenario <- params
     result = _deep_merge(base, scenario)

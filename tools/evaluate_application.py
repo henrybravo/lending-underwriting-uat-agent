@@ -1,8 +1,6 @@
 """
 Run a loan application through decision engine
 """
-import sys
-sys.path.insert(0, '.')
 
 from src.lending.models import (
     LoanApplication, Income, IncomeType, Credit,
