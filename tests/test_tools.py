@@ -180,7 +180,7 @@ def test_generate_report():
 # --- read_spec_rules ---
 
 def test_read_spec_rules():
-    spec_path = "openspec/specs/lending-underwriting/spec.md"
+    spec_path = "spec/lending-underwriting.md"
     result = read_spec_rules(spec_path)
     assert "error" not in result, f"unexpected error: {result.get('error')}"
     assert len(result["requirements"]) >= 5

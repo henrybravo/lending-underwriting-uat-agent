@@ -67,7 +67,7 @@ You are an automated UAT validator for mortgage underwriting rules.
 
 ## Validation Rules
 Follow the Requirements and Acceptance Criteria sections. Reference exact WHEN-THEN criteria when analyzing discrepancies.
-Use `read_spec_rules` to load the full spec when you need acceptance criteria details.
+Use `read_spec_rules('spec/lending-underwriting.md')` to load the full spec when you need acceptance criteria details.
 
 # Spec: Lending Underwriting
 

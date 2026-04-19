@@ -20,7 +20,7 @@ LoanApplication
   └─► Decision (decision_engine.py)    evaluate() → AUTO_APPROVE | MANUAL_REVIEW | AUTO_DENY
 ```
 
-Domain models live in `models.py` as Python dataclasses. The agent exercises this engine by generating synthetic applicants, running them through `evaluate()`, and comparing outcomes against spec expectations. See [`openspec/specs/lending-underwriting/spec.md`](openspec/specs/lending-underwriting/spec.md) for complete underwriting requirements.
+Domain models live in `models.py` as Python dataclasses. The agent exercises this engine by generating synthetic applicants, running them through `evaluate()`, and comparing outcomes against spec expectations.
 
 ## Quick Start
 
@@ -54,14 +54,10 @@ uv run python agent.py --model claude-sonnet-4.5 -s standard_approval,bonus_inco
 
 ```
 ├── .github/
-│   ├── skills/lending-underwriting/SKILL.md   # Daedalion-generated skill with tool definitions
-│   ├── agents/lending-underwriting.agent.md   # Agent profile
-│   └── copilot-instructions.md                # Project context for Copilot
-├── docs/
-├── logs/
-├── openspec/
-│   ├── specs/lending-underwriting/spec.md    # Source of truth: requirements, tools, scenarios
-│   └── changes/                               # Change proposals (archived after completion)
+│   ├── skills/lending-underwriting/SKILL.md   # Skill definition with tool catalog and UAT scenarios
+│   └── copilot-instructions.md                # Project context for Copilot IDE
+├── spec/
+│   └── lending-underwriting.md                # Single source of truth: full requirements + WHEN/THEN criteria
 ├── src/lending/                               # Decision engine implementation
 │   ├── models.py                              # Domain models (LoanApplication, Income, Credit, etc.)
 │   ├── income.py                              # Income verification logic
@@ -81,6 +77,44 @@ uv run python agent.py --model claude-sonnet-4.5 -s standard_approval,bonus_inco
 │   └── generate_report.py                     # Produce markdown UAT reports
 └── agent.py                                   # Copilot SDK entry point
 ```
+
+### File Interdependencies
+
+```
+  ┌──────────────────────────────────────────────────────────────────┐
+  │ IDE (VS Code Copilot extension)                                  │
+  │   .github/copilot-instructions.md ──► project context for IDE    │
+  └──────────────────────────────────────────────────────────────────┘
+
+  ┌──────────────────────────────────────────────────────────────────┐
+  │ agent.py  (uv run python agent.py)                               │
+  │                                                                  │
+  │  skill_directories=[".github/skills"]                            │
+  │    └──► SKILL.md ──auto-loaded into every API call──► LLM        │
+  │           │  contains: condensed spec + tool catalog             │
+  │           │            + agent orchestration instructions        │
+  │           │  instructs LLM to call read_spec_rules when needed   │
+  │           ▼                                                      │
+  │  tools/   (Python functions registered with SDK)                 │
+  │    ├── run_scenario ─────────────────────────────────► src/      │
+  │    ├── evaluate_application ────────────────────────► src/       │
+  │    ├── generate_synthetic_applicant                              │
+  │    ├── compare_decisions                                         │
+  │    ├── generate_report                                           │
+  │    └── read_spec_rules ──on-demand──► spec/lending-underwriting  │
+  │                                        .md (full WHEN/THEN spec) │
+  └──────────────────────────────────────────────────────────────────┘
+
+  ┌──────────────────────────────────────────────────────────────────┐
+  │ tests/test_tools.py                                              │
+  │   read_spec_rules('spec/lending-underwriting.md') ──────────────►│
+  │   spec/lending-underwriting.md  ◄── single source of truth       │
+  └──────────────────────────────────────────────────────────────────┘
+```
+
+> **Spec change workflow**: edit `spec/lending-underwriting.md` → update `src/lending/*.py`
+> → run `uv run python tests/test_tools.py` → run agent for UAT validation.
+> SKILL.md condensed spec body should reflect any major threshold changes.
 
 ## Test Scenarios
 
@@ -138,7 +172,7 @@ Full 11-scenario run:
    }
    ```
 
-2. Add expected outcome to spec.md scenarios (optional but recommended)
+2. Add expected outcome to `tools/generate_synthetic_applicant.py` `KNOWN_SCENARIOS` (optional)
 
 3. Add to `SCENARIO_EXPECTATIONS` in `tests/test_tools.py` and run unit tests:
    ```bash
@@ -149,10 +183,9 @@ Full 11-scenario run:
 
 ### Modifying Decision Rules
 
-1. Update spec requirements in `openspec/specs/lending-underwriting/spec.md`
-2. Implement in `src/lending/*.py`
-3. Run `daedalion build` to update SKILL.md
-4. Validate with unit tests and UAT:
+1. Edit `spec/lending-underwriting.md` (single source of truth — requirements and acceptance criteria live here)
+2. Implement changes in `src/lending/*.py`
+3. Validate with unit tests and UAT:
    ```bash
    uv run python tests/test_basic.py && uv run python tests/test_tools.py
    uv run python agent.py
@@ -346,4 +379,6 @@ uv run python agent.py -m gpt-4.1 --timeout 300
 2. **DTI manual review threshold** (`src/lending/dti.py` or `decision_engine.py`): Uses `< 43` instead of `<= 43`
 
 ## Documentation
-- [openspec/specs/lending-underwriting/spec.md](./openspec/specs/lending-underwriting/spec.md) - Complete underwriting requirements
+- [spec/lending-underwriting.md](./spec/lending-underwriting.md) - **Single source of truth**: complete underwriting requirements and acceptance criteria. Edit here first, then update `src/lending/`.
+- [docs/jaeger.md](./docs/jaeger.md) - Tracing setup with Jaeger
+- [.github/skills/lending-underwriting/SKILL.md](./.github/skills/lending-underwriting/SKILL.md) - Skill definition with tool catalog and condensed agent instructions

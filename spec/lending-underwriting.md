@@ -1,3 +1,14 @@
+<!--
+  Single source of truth for lending underwriting requirements.
+
+  This file drives two things:
+    1. Runtime validation — agent.py calls the read_spec_rules tool with this path
+       to load acceptance criteria when investigating discrepancies.
+    2. Unit tests — tests/test_tools.py validates read_spec_rules against this file.
+
+  To change a rule: edit the Requirements or Acceptance Criteria sections here,
+  then update src/lending/*.py to match, then re-run tests.
+-->
 ---
 name: lending-underwriting
 description: Mortgage underwriting decision engine with income verification, DTI calculation, credit assessment, and compensating factors
