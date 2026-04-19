@@ -2,6 +2,42 @@
 
 Part of series of AI agents that automate code reviews, backlog refinement or software delivery workflows.
 
+An AI agent that validates a **mortgage underwriting decision engine** against formal specifications.
+It uses the **GitHub Copilot SDK** to orchestrate an LLM that generates synthetic loan applicants,
+runs them through the decision engine, and compares outcomes against spec expectations — producing
+structured UAT reports with pass/fail analysis and MLflow experiment tracking across model runs.
+
+```mermaid
+flowchart LR
+    spec["📋 spec/\nlending-underwriting.md\n(requirements + WHEN/THEN)"]
+    agent["🤖 agent.py\n(Copilot SDK + LLM)"]
+    tools["🔧 tools/\nrun_scenario"]
+    engine["⚙️ src/lending/\ndecision_engine.evaluate()"]
+    report["📊 UAT Report\n+ MLflow Run"]
+
+    spec -->|defines expectations| agent
+    agent -->|orchestrates| tools
+    tools -->|exercises| engine
+    engine -->|AUTO_APPROVE / MANUAL_REVIEW / AUTO_DENY| tools
+    tools -->|passed / failed| report
+```
+
+## Table of Contents
+
+- [The Lending App](#the-lending-app-srclenging)
+- [Quick Start](#quick-start)
+- [Project Structure](#project-structure)
+- [Test Scenarios](#test-scenarios)
+- [Session Telemetry](#session-telemetry)
+- [Development Notes](#development-notes)
+- [CLI Reference](#cli-reference)
+- [Usage Examples](#usage-examples)
+- [Agent vs Manual Mode](#agent-vs-manual-mode)
+- [Model Compatibility](#model-compatibility)
+- [Troubleshooting](#troubleshooting)
+- [Intentional Bugs (for UAT)](#intentional-bugs-for-uat)
+- [Documentation](#documentation)
+
 ## The Lending App (`src/lending/`)
 
 The system under test is a mortgage underwriting decision engine that takes a loan application and returns one of three outcomes: **AUTO_APPROVE**, **MANUAL_REVIEW**, or **AUTO_DENY**.
@@ -162,63 +198,7 @@ Full 11-scenario run:
 
 ## Development Notes
 
-### Adding New Scenarios
-
-1. Add scenario to `tools/generate_synthetic_applicant.py`:
-   ```python
-   "new_scenario": {
-       "income": {"type": "w2", "monthly_gross": 5000, ...},
-       "debts": {...},
-       "credit": {...}
-   }
-   ```
-
-2. Add expected outcome to `tools/generate_synthetic_applicant.py` `KNOWN_SCENARIOS` (optional)
-
-3. Add to `SCENARIO_EXPECTATIONS` in `tests/test_tools.py` and run unit tests:
-   ```bash
-   uv run python tests/test_tools.py
-   ```
-
-4. Test with agent: `uv run python agent.py --scenarios new_scenario`
-
-### Modifying Decision Rules
-
-1. Edit `spec/lending-underwriting.md` (single source of truth — requirements and acceptance criteria live here)
-2. Implement changes in `src/lending/*.py`
-3. Validate with unit tests and UAT:
-   ```bash
-   uv run python tests/test_basic.py && uv run python tests/test_tools.py
-   uv run python agent.py
-   ```
-
-### Testing
-
-```bash
-# Unit tests — decision engine basics (2 tests)
-uv run python tests/test_basic.py
-
-# Unit tests — all tool functions (15 tests)
-uv run python tests/test_tools.py
-
-# Agent UAT — LLM-driven end-to-end validation (requires Copilot CLI)
-uv run python agent.py --model claude-sonnet-4.5 -s standard_approval,bonus_income
-```
-
-### Debugging
-
-```bash
-# Enable debug mode for full event logging - writes logfiles to ./logs/debug_[date_time].log
-uv run python agent.py --debug
-
-# Run manual mode (direct tool invocation, no SDK)
-uv run python agent.py --manual
-
-# Check session telemetry
-# Look for "SESSION USAGE SUMMARY" at end of run and see docs/mlflow.md
-uv run python agent.py --mlflow
-mlflow ui --backend-store-uri mlruns  # → http://localhost:5000
-```
+See [docs/development.md](./docs/development.md) for guides on adding scenarios, modifying decision rules, running tests, and debugging.
 
 ## CLI Reference
 
@@ -382,5 +362,6 @@ uv run python agent.py -m gpt-4.1 --timeout 300
 
 ## Documentation
 - [spec/lending-underwriting.md](./spec/lending-underwriting.md) - **Single source of truth**: complete underwriting requirements and acceptance criteria. Edit here first, then update `src/lending/`.
+- [docs/development.md](./docs/development.md) - Adding scenarios, modifying rules, testing, debugging
 - [docs/mlflow.md](./docs/mlflow.md) - MLflow experiment tracking: setup, metrics logged, run comparison
 - [.github/skills/lending-underwriting/SKILL.md](./.github/skills/lending-underwriting/SKILL.md) - Skill definition with tool catalog and condensed agent instructions
