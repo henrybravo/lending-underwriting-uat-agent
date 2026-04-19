@@ -158,6 +158,7 @@ Full 11-scenario run:
 
 > **Tip**: Use `--manual` mode for zero-cost validation during development.
 > The `--debug` flag logs per-call token breakdowns to `logs/`.
+> The `--mlflow` flag stores every run in `mlruns/` for cross-model comparison — see [docs/mlflow.md](./docs/mlflow.md).
 
 ## Development Notes
 
@@ -214,8 +215,9 @@ uv run python agent.py --debug
 uv run python agent.py --manual
 
 # Check session telemetry
-# Look for "SESSION USAGE SUMMARY" at end of run and see docs/jaeger.md
-uv run python agent.py --tracing
+# Look for "SESSION USAGE SUMMARY" at end of run and see docs/mlflow.md
+uv run python agent.py --mlflow
+mlflow ui --backend-store-uri mlruns  # → http://localhost:5000
 ```
 
 ## CLI Reference
@@ -230,7 +232,7 @@ uv run python agent.py --tracing
 | `--no-streaming` | | Disable streaming output |
 | `--manual` | | Run without SDK (direct tool calls, no LLM) |
 | `--list-models` | | Show available models and exit |
-| `--tracing` | | Enable OpenTelemetry tracing (exports to localhost:4317) |
+| `--mlflow` | | Enable MLflow experiment tracking (stored in `./mlruns`) |
 
 ### Understanding `--task` vs `--scenarios`
 
@@ -380,5 +382,5 @@ uv run python agent.py -m gpt-4.1 --timeout 300
 
 ## Documentation
 - [spec/lending-underwriting.md](./spec/lending-underwriting.md) - **Single source of truth**: complete underwriting requirements and acceptance criteria. Edit here first, then update `src/lending/`.
-- [docs/jaeger.md](./docs/jaeger.md) - Tracing setup with Jaeger
+- [docs/mlflow.md](./docs/mlflow.md) - MLflow experiment tracking: setup, metrics logged, run comparison
 - [.github/skills/lending-underwriting/SKILL.md](./.github/skills/lending-underwriting/SKILL.md) - Skill definition with tool catalog and condensed agent instructions
