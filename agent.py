@@ -42,11 +42,6 @@ from tools.generate_report import generate_report
 from tools.run_scenario import run_scenario
 
 
-# Paths for agent/skill loading
-AGENT_MD_PATH = Path(".github/agents/lending-underwriting.agent.md")
-SKILL_PATH = Path(".github/skills/lending-underwriting/SKILL.md")
-
-
 # Persistent tool cache with TTL support
 CACHE_FILE = "tool_cache.db"
 CACHE_TTL_SECONDS = 86400  # 1 day
