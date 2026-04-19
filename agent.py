@@ -114,6 +114,8 @@ class _NoOpSpan:
     def set_attribute(self, key, value): pass
     def add_event(self, name, attributes=None): pass
     def set_status(self, status): pass
+    def set_inputs(self, inputs: dict): pass
+    def set_outputs(self, outputs: dict): pass
 
 
 _NO_OP_SPAN = _NoOpSpan()
@@ -121,11 +123,11 @@ _NO_OP_SPAN = _NoOpSpan()
 
 @contextlib.contextmanager
 def trace_span(name: str):
-    """Context manager for span tracing — uses MLflow when enabled, no-op otherwise."""
+    """Context manager for span tracing — yields the MLflow span when enabled, no-op otherwise."""
     if MLFLOW_ENABLED:
         import mlflow
-        with mlflow.start_span(name):
-            yield _NO_OP_SPAN
+        with mlflow.start_span(name) as span:
+            yield span
     else:
         yield _NO_OP_SPAN
 
@@ -304,65 +306,84 @@ def create_tools() -> list[copilot_tools.Tool]:
     """Create SDK Tool objects with handlers."""
 
     async def handle_evaluate(invocation: copilot_tools.ToolInvocation) -> copilot_tools.ToolResult:
-        with trace_span("Tool: evaluate_application"):
+        with trace_span("Tool: evaluate_application") as span:
             args = invocation.arguments
+            app = args["application"]
+            span.set_inputs({
+                "credit_score": app.get("credit", {}).get("score"),
+                "income_type": app.get("income", {}).get("type"),
+            })
             key = cache_key("evaluate_application", args)
             cached = get_cached_value(key)
             if cached is not None:
                 print(f"[cache hit] evaluate_application: {key[:16]}...")
                 return copilot_tools.ToolResult(text_result_for_llm=cached)
-            
-            result = evaluate_application(args["application"])
+
+            result = evaluate_application(app)
+            span.set_outputs({"result": result.get("result"), "dti": round(float(result.get("dti_calculated", 0) or 0), 4)})
             text = str(result)
             set_cached_value(key, text)
             return copilot_tools.ToolResult(text_result_for_llm=text)
 
     async def handle_generate(invocation: copilot_tools.ToolInvocation) -> copilot_tools.ToolResult:
-        with trace_span("Tool: generate_synthetic_applicant"):
+        with trace_span("Tool: generate_synthetic_applicant") as span:
             args = invocation.arguments
+            span.set_inputs({"scenario_type": args["scenario_type"]})
             key = cache_key("generate_synthetic_applicant", args)
             cached = get_cached_value(key)
             if cached is not None:
                 print(f"[cache hit] generate_synthetic_applicant: {key[:16]}...")
                 return copilot_tools.ToolResult(text_result_for_llm=cached)
-            
+
             result = generate_synthetic_applicant(args["scenario_type"], args.get("params", {}))
+            span.set_outputs({"applicant_id": result.get("applicant_id", "")})
             text = str(result)
             set_cached_value(key, text)
             return copilot_tools.ToolResult(text_result_for_llm=text)
 
     async def handle_compare(invocation: copilot_tools.ToolInvocation) -> copilot_tools.ToolResult:
-        with trace_span("Tool: compare_decisions"):
+        with trace_span("Tool: compare_decisions") as span:
             args = invocation.arguments
+            span.set_inputs({"actual": args["actual"].get("result"), "expected": args["expected"]})
             key = cache_key("compare_decisions", args)
             cached = get_cached_value(key)
             if cached is not None:
                 print(f"[cache hit] compare_decisions: {key[:16]}...")
                 return copilot_tools.ToolResult(text_result_for_llm=cached)
-            
+
             result = compare_decisions(args["actual"], args["expected"])
+            span.set_outputs({"passed": result.get("passed")})
             text = str(result)
             set_cached_value(key, text)
             return copilot_tools.ToolResult(text_result_for_llm=text)
 
     async def handle_read_spec(invocation: copilot_tools.ToolInvocation) -> copilot_tools.ToolResult:
-        with trace_span("Tool: read_spec_rules"):
+        with trace_span("Tool: read_spec_rules") as span:
             args = invocation.arguments
+            span.set_inputs({"spec_path": args["spec_path"]})
             key = cache_key("read_spec_rules", args)
             cached = get_cached_value(key)
             if cached is not None:
                 print(f"[cache hit] read_spec_rules: {key[:16]}...")
                 return copilot_tools.ToolResult(text_result_for_llm=cached)
-            
+
             result = read_spec_rules(args["spec_path"])
+            span.set_outputs({
+                "requirements_count": len(result.get("requirements", [])),
+                "criteria_count": len(result.get("acceptance_criteria", [])),
+            })
             text = str(result)
             set_cached_value(key, text)
             return copilot_tools.ToolResult(text_result_for_llm=text)
 
     async def handle_report(invocation: copilot_tools.ToolInvocation) -> copilot_tools.ToolResult:
-        with trace_span("Tool: generate_report"):
+        with trace_span("Tool: generate_report") as span:
             args = invocation.arguments
             results = args["test_results"]
+            passed = sum(1 for r in results if r.get("passed"))
+            total = len(results)
+            span.set_inputs({"total_scenarios": total})
+
             result_text = generate_report(results)
             report_dir = Path("tests/uat/reports")
             report_dir.mkdir(parents=True, exist_ok=True)
@@ -370,11 +391,11 @@ def create_tools() -> list[copilot_tools.Tool]:
             report_file = report_dir / f"uat_report_{timestamp}.md"
             report_file.write_text(result_text)
 
+            span.set_outputs({"pass_rate": round(passed / total, 3) if total else 0.0, "passed": passed, "report_file": str(report_file)})
+
             if MLFLOW_ENABLED:
                 import mlflow
                 if mlflow.active_run() is not None:
-                    passed = sum(1 for r in results if r.get("passed"))
-                    total = len(results)
                     mlflow.log_metrics({
                         "pass_count": float(passed),
                         "fail_count": float(total - passed),
@@ -390,13 +411,21 @@ def create_tools() -> list[copilot_tools.Tool]:
 
     async def handle_run_scenario(invocation: copilot_tools.ToolInvocation) -> copilot_tools.ToolResult:
         """Execute a complete UAT validation for one scenario."""
-        with trace_span("Tool: run_scenario"):
+        with trace_span("Tool: run_scenario") as span:
             args = invocation.arguments
+            span.set_inputs({"scenario_type": args["scenario_type"], "expected": args["expected"]})
             result = run_scenario(
                 scenario_type=args["scenario_type"],
                 expected=args["expected"],
                 params=args.get("params", {}),
             )
+            comparison = result.get("comparison", {})
+            decision = result.get("decision", {})
+            span.set_outputs({
+                "passed": comparison.get("passed"),
+                "actual": decision.get("result"),
+                "dti": round(float(decision.get("dti_calculated", 0) or 0), 4),
+            })
             return copilot_tools.ToolResult(text_result_for_llm=str(result))
 
     return [
@@ -714,8 +743,10 @@ Always conclude by calling generate_report with collected results.
             })
 
         try:
-            with trace_span("UAT Session"):
+            with trace_span("UAT Session") as span:
+                span.set_inputs({"model": model or "default", "scenarios": scenarios_tag, "task": task})
                 await session.send_and_wait(task_prompt, timeout=timeout)
+                span.set_outputs({"status": "completed", "api_calls": stats.api_calls, "tool_calls": stats.tool_calls})
         finally:
             await session.disconnect()
             await client.stop()
